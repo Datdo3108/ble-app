@@ -160,8 +160,8 @@ def update_plot():
             match_2 = re.search(r'ADC\s*Channel:\s* 0+\s*Read value:\s*[\d.]+\s*Voltage value:\s*(\d+)mV',data)
             if match_2:
                 data_flag_2 = 1
-                # adc_0_value = float(int(match_2.group(1)) - 1250)/-10000        # Formula for ID
-                adc_0_value = float(int(match_2.group(1)) - 1250)/-10000        # Formula for ID
+                # adc_0_value = float(int(match_2.group(1)) - 1280)/-10000        # Formula for ID, BBL
+                adc_0_value = float(int(match_2.group(1)) - 1280)/-326        # Formula for ID, PEDOT
                 print(f"--Channel 0: ADC value: {adc_0_value}")
                 IDS_list.append(adc_0_value)
 
