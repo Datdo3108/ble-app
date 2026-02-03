@@ -168,6 +168,18 @@ class BLEWorker(QThread):
     #             if ch2_loop >= ch2_stop:
     #                 break
 
+    # async def disconnect_ble(self):
+    #     if self.client and self.client.is_connected:
+    #         await self.client.disconnect()
+
+    async def disconnect(self):
+        if self.client and self.client.is_connected:
+            try:
+                await self.client.stop_notify(CHAR_UUID)
+                await self.client.disconnect()
+            except Exception:
+                pass
+
     async def send_loop_data(self, ch1: ChannelConfig, ch2: ChannelConfig, interval_s: float):
         ch1_loop = ch1.start
         ch2_loop = ch2.start
@@ -215,9 +227,14 @@ class BLEApp(QWidget):
         self.device_edit = QLineEdit(self)
         self.device_edit.setGeometry(130, 20, 200, 25)
 
-        self.scan_btn = QPushButton("Scan", self)
+        self.scan_btn = QPushButton("Scan", self)                   # Scan & connect
         self.scan_btn.setGeometry(350, 20, 120, 25)
         self.scan_btn.clicked.connect(self.start_scan)
+
+        self.disconnect_btn = QPushButton("Disconnect", self)       # Disconnect
+        self.disconnect_btn.setGeometry(350, 45, 120, 25)
+        self.disconnect_btn.setEnabled(False)
+        self.disconnect_btn.clicked.connect(self.disconnect_device)
 
         # ---- TX data ----
         QLabel("TX Data:", self).setGeometry(20, 70, 100, 25)
@@ -395,6 +412,24 @@ class BLEApp(QWidget):
 
     def on_connected(self, addr):
         self.scan_btn.setText("Connected")
+        self.scan_btn.setEnabled(False)
+        self.disconnect_btn.setEnabled(True)
+
+    def disconnect_device(self):
+        if not self.ble_worker:
+            return
+
+        # ask BLE thread to disconnect safely
+        asyncio.run_coroutine_threadsafe(
+            self.ble_worker.disconnect(),
+            self.ble_worker.loop
+        )
+
+        # ---- UI reset ----
+        self.scan_btn.setText("Scan")
+        self.scan_btn.setEnabled(True)
+        self.disconnect_btn.setEnabled(False)
+
 
     def on_scan_failed(self):
         self.scan_btn.setEnabled(True)
