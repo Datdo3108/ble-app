@@ -1,12 +1,15 @@
 import sys
+import os
 import numpy as np
 import asyncio
 import time
+import csv
 import pyqtgraph as pg
 from collections import deque
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QPushButton, QLineEdit,
-    QTextEdit, QLabel, QComboBox, QCheckBox
+    QTextEdit, QLabel, QComboBox, QCheckBox,
+    QTabWidget,
 )
 from PyQt5.QtCore import QTimer, QThread, pyqtSignal, Qt
 from bleak import BleakScanner, BleakClient
@@ -217,11 +220,22 @@ class BLEWorker(QThread):
 class BLEApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("BLE PyQt5 App")
+        self.setWindowTitle("SoftElectronicsGroup-OECT App")
         # self.setGeometry(200, 200, 520, 800)
         screen = QApplication.primaryScreen().availableGeometry()
         self.resize(screen.width(), screen.height())
 
+        # ---- Side Tab window, for display graph ----
+        self.tabs = QTabWidget(self)
+        self.tabs.setGeometry(490, 5, 1300, 970)  # adjust freely    500, 670, 1400, 300
+
+        self.tab_main = QWidget()
+        self.tabs.addTab(self.tab_main, "Main")
+
+        self.tab_oect = QWidget()
+        self.tabs.addTab(self.tab_oect, "OECT")
+
+        # ---- Main Tab window ----
         # ---- Device name ----
         QLabel("Device Name:", self).setGeometry(20, 20, 100, 25)
         self.device_edit = QLineEdit(self)
@@ -323,34 +337,139 @@ class BLEApp(QWidget):
 
         self.t0 = time.perf_counter()
 
+        # ---- Axis label style
+        label_style_main_tab = {
+                'color': "#FFFFFF",
+                'font-size': '11pt',
+                'font-weight': 'bold'
+            }
         # ---- Channel 1 graph ----
-        self.plot_widget_1 = pg.PlotWidget(self)
-        self.plot_widget_1.setGeometry(500, 30, 1400, 300)
-        self.plot_widget_1.setLabel('left', 'Channel 1')
-        self.plot_widget_1.setLabel('bottom', 'Time', units='s')
+        self.plot_widget_1 = pg.PlotWidget(self.tab_main)
+        self.plot_widget_1.setGeometry(0, 0, 1400, 300)
+        self.plot_widget_1.setLabel('left', 'Channel 1', **label_style_main_tab)
+        self.plot_widget_1.setLabel('bottom', 'Time', units='s', **label_style_main_tab)
         self.plot_widget_1.showGrid(x=True, y=True)
 
         self.plot_curve_1 = self.plot_widget_1.plot(pen='y')
 
         # ---- Channel 2 graph ----
-        self.plot_widget_2 = pg.PlotWidget(self)
-        self.plot_widget_2.setGeometry(500, 350, 1400, 300)
-        self.plot_widget_2.setLabel('left', 'Channel 2')
-        self.plot_widget_2.setLabel('bottom', 'Time', units='s')
+        self.plot_widget_2 = pg.PlotWidget(self.tab_main)
+        self.plot_widget_2.setGeometry(0, 320, 1400, 300)
+        self.plot_widget_2.setLabel('left', 'Channel 2 (DAC 2)', **label_style_main_tab)
+        self.plot_widget_2.setLabel('bottom', 'Time', units='s', **label_style_main_tab)
         self.plot_widget_2.showGrid(x=True, y=True)
 
         self.plot_curve_2 = self.plot_widget_2.plot(pen='y')
 
         # ---- Channel 3 graph ----
-        self.plot_widget_3 = pg.PlotWidget(self)
-        self.plot_widget_3.setGeometry(500, 670, 1400, 300)
-        self.plot_widget_3.setLabel('left', 'Channel 3')
-        self.plot_widget_3.setLabel('bottom', 'Time', units='s')
+        self.plot_widget_3 = pg.PlotWidget(self.tab_main)
+        self.plot_widget_3.setGeometry(0, 640, 1400, 300)
+        self.plot_widget_3.setLabel('left', 'Channel 3 (DAC 1)', **label_style_main_tab)
+        self.plot_widget_3.setLabel('bottom', 'Time', units='s', **label_style_main_tab)
         self.plot_widget_3.showGrid(x=True, y=True)
 
         self.plot_curve_3 = self.plot_widget_3.plot(pen='y')
 
-    # ---- 
+        # ---- Axis label style
+        label_style_oect_tab = {
+                'color': '#000000',
+                'font-size': '12pt',
+                'font-weight': 'bold'
+            }
+        # ---- ID vs VG graph ----
+        self.plot_widget_4 = pg.PlotWidget(self.tab_oect)
+        self.plot_widget_4.setGeometry(0, 0, 1400, 300)
+        self.plot_widget_4.setLabel('left', 'ID', **label_style_oect_tab)
+        self.plot_widget_4.setLabel('bottom', 'VG', units='mV', **label_style_oect_tab)
+        self.plot_widget_4.showGrid(x=True, y=True)
+        self.plot_widget_4.setBackground(background=(255, 255, 255))
+
+        self.plot_curve_4 = self.plot_widget_4.plot(pen='r')
+
+        # ---- ID vs VD graph ----
+        self.plot_widget_5 = pg.PlotWidget(self.tab_oect)
+        self.plot_widget_5.setGeometry(0, 320, 1400, 300)
+        self.plot_widget_5.setLabel('left', 'ID', **label_style_oect_tab)
+        self.plot_widget_5.setLabel('bottom', 'VD', units='mV', **label_style_oect_tab)
+        self.plot_widget_5.showGrid(x=True, y=True)
+        self.plot_widget_5.setBackground(background=(255, 255, 255))
+
+        self.plot_curve_5 = self.plot_widget_5.plot(pen='r')
+
+        # ---- Reset graph ----
+        self.reset_graph_btn = QPushButton("Reset Graph", self)
+        self.reset_graph_btn.setGeometry(20, 110, 120, 30)  # adjust freely
+        self.reset_graph_btn.clicked.connect(self.reset_graph)
+
+        # ---- Saving to .csv ----
+        self.csv_time = []
+        self.csv_ch1 = []
+        self.csv_ch2 = []
+        self.csv_ch3 = []
+
+        QLabel("CSV filename:", self).setGeometry(20, 640, 100, 30)
+
+        self.csv_name_edit = QLineEdit(self)
+        self.csv_name_edit.setGeometry(130, 640, 200, 30)
+        self.csv_name_edit.setPlaceholderText("enter filename here")
+
+        self.save_csv_btn = QPushButton("Save CSV", self)
+        self.save_csv_btn.setGeometry(350, 640, 120, 30)
+        self.save_csv_btn.clicked.connect(self.save_csv)
+
+    def reset_graph(self):
+        # reset time reference
+        self.t0 = time.perf_counter()
+
+        # clear buffers
+        self.time_buffer.clear()
+        self.data_buffer_1.clear()
+        self.data_buffer_2.clear()
+        self.data_buffer_3.clear()
+
+        # clear plot
+        self.plot_curve_1.setData([], [])
+        self.plot_curve_2.setData([], [])
+        self.plot_curve_3.setData([], [])
+
+        # reset .csv data
+        self.csv_time.clear()
+        self.csv_ch1.clear()
+        self.csv_ch2.clear()
+        self.csv_ch3.clear()
+
+    def get_unique_filename(self, base_name):
+        filename = f"{base_name}.csv"
+        counter = 1
+
+        while os.path.exists(filename):
+            filename = f"{base_name}_{counter}.csv"
+            counter += 1
+
+        return filename
+    
+    def save_csv(self):
+        if not self.csv_time:
+            self.rx_box.append("No data to save.")
+            return
+
+        base_name = self.csv_name_edit.text().strip()
+        if not base_name:
+            base_name = "data"
+
+        filename = self.get_unique_filename(base_name)
+        path = os.path.abspath(filename)
+
+        with open(filename, mode='w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(["Time (s)", "Channel 1 (mV)", "Channel 2 (mV)", "Channel 3 (mV)"])
+
+            for t, c1, c2, c3 in zip(self.csv_time, self.csv_ch1, self.csv_ch2, self.csv_ch3):
+                writer.writerow([t, c1, c2, c3])
+
+        self.rx_box.append(f"Data saved to {path}")
+
+    # ---- Set channel value from textbox
     def get_ch1_config(self) -> ChannelConfig:
         return ChannelConfig(
             start=int(self.start_edit_1.text()),
@@ -414,6 +533,7 @@ class BLEApp(QWidget):
         self.scan_btn.setText("Connected")
         self.scan_btn.setEnabled(False)
         self.disconnect_btn.setEnabled(True)
+        self.reset_graph()
 
     def disconnect_device(self):
         if not self.ble_worker:
@@ -479,14 +599,25 @@ class BLEApp(QWidget):
         self.data_buffer_3.append(channel_3)
 
         # ---- update plot ----
-        self.plot_curve_1.setData(list(self.time_buffer), list(self.data_buffer_1))
-        self.plot_curve_2.setData(list(self.time_buffer), list(self.data_buffer_2))
-        self.plot_curve_3.setData(list(self.time_buffer), list(self.data_buffer_3))
+        # ---- main tab
+        self.plot_curve_1.setData(list(self.time_buffer), list(self.data_buffer_1))     # time - ID
+        self.plot_curve_2.setData(list(self.time_buffer), list(self.data_buffer_2))     # time - VD
+        self.plot_curve_3.setData(list(self.time_buffer), list(self.data_buffer_3))     # time - VG
+
+        # ---- oect tab
+        self.plot_curve_4.setData(list(self.data_buffer_3), list(self.data_buffer_1))   # VG - ID
+        self.plot_curve_5.setData(list(self.data_buffer_2), list(self.data_buffer_1))   # VD - ID
 
         # ---- optional text display ----
         self.rx_box.append(f"{t:.3f}s : {channel_1}")
         self.rx_box.append(f"{t:.3f}s : {channel_2}")
         self.rx_box.append(f"{t:.3f}s : {channel_3}")
+
+        # ---- save to .csv array ----
+        self.csv_time.append(t)
+        self.csv_ch1.append(channel_1)
+        self.csv_ch2.append(channel_2)
+        self.csv_ch3.append(channel_3)
 
     # ---------- Set data in a loop ----------
     def start_loop(self):
