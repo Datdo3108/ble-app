@@ -205,14 +205,24 @@ class BLEWorker(QThread):
 
             # Advance enabled channels only
             if ch1.enabled:
-                ch1_loop += ch1.step
-                if ch1_loop >= ch1.stop:
-                    break
+                if ch1.start <= ch1.stop:
+                    ch1_loop += ch1.step
+                    if ch1_loop > ch1.stop:     # Should not let equality (=)
+                        break
+                elif ch1.start >= ch1.stop:
+                    ch1_loop -= ch1.step
+                    if ch1_loop < ch1.stop:
+                        break
 
             if ch2.enabled:
-                ch2_loop += ch2.step
-                if ch2_loop >= ch2.stop:
-                    break
+                if ch2.start <= ch2.stop:
+                    ch2_loop += ch2.step
+                    if ch2_loop > ch2.stop:
+                        break
+                elif ch2.start >= ch2.stop:
+                    ch2_loop -= ch2.step
+                    if ch2_loop < ch2.stop:     # Should not let equality (=)
+                        break
 
 
 
@@ -227,7 +237,7 @@ class BLEApp(QWidget):
 
         # ---- Side Tab window, for display graph ----
         self.tabs = QTabWidget(self)
-        self.tabs.setGeometry(490, 5, 1300, 970)  # adjust freely    500, 670, 1400, 300
+        self.tabs.setGeometry(490, 5, 1400, 970)  # adjust freely    500, 670, 1400, 300
 
         self.tab_main = QWidget()
         self.tabs.addTab(self.tab_main, "Main")
@@ -345,8 +355,8 @@ class BLEApp(QWidget):
             }
         # ---- Channel 1 graph ----
         self.plot_widget_1 = pg.PlotWidget(self.tab_main)
-        self.plot_widget_1.setGeometry(0, 0, 1400, 300)
-        self.plot_widget_1.setLabel('left', 'Channel 1', **label_style_main_tab)
+        self.plot_widget_1.setGeometry(0, 0, 1380, 300)
+        self.plot_widget_1.setLabel('left', 'Channel 1 (uA)', **label_style_main_tab)
         self.plot_widget_1.setLabel('bottom', 'Time', units='s', **label_style_main_tab)
         self.plot_widget_1.showGrid(x=True, y=True)
 
@@ -354,8 +364,8 @@ class BLEApp(QWidget):
 
         # ---- Channel 2 graph ----
         self.plot_widget_2 = pg.PlotWidget(self.tab_main)
-        self.plot_widget_2.setGeometry(0, 320, 1400, 300)
-        self.plot_widget_2.setLabel('left', 'Channel 2 (DAC 2)', **label_style_main_tab)
+        self.plot_widget_2.setGeometry(0, 320, 1380, 300)
+        self.plot_widget_2.setLabel('left', 'Channel 2 (Drain) (mV)', **label_style_main_tab)
         self.plot_widget_2.setLabel('bottom', 'Time', units='s', **label_style_main_tab)
         self.plot_widget_2.showGrid(x=True, y=True)
 
@@ -363,8 +373,8 @@ class BLEApp(QWidget):
 
         # ---- Channel 3 graph ----
         self.plot_widget_3 = pg.PlotWidget(self.tab_main)
-        self.plot_widget_3.setGeometry(0, 640, 1400, 300)
-        self.plot_widget_3.setLabel('left', 'Channel 3 (DAC 1)', **label_style_main_tab)
+        self.plot_widget_3.setGeometry(0, 640, 1380, 300)
+        self.plot_widget_3.setLabel('left', 'Channel 3 (Gate) (mV)', **label_style_main_tab)
         self.plot_widget_3.setLabel('bottom', 'Time', units='s', **label_style_main_tab)
         self.plot_widget_3.showGrid(x=True, y=True)
 
@@ -378,23 +388,25 @@ class BLEApp(QWidget):
             }
         # ---- ID vs VG graph ----
         self.plot_widget_4 = pg.PlotWidget(self.tab_oect)
-        self.plot_widget_4.setGeometry(0, 0, 1400, 300)
+        self.plot_widget_4.setGeometry(0, 0, 1380, 300)
         self.plot_widget_4.setLabel('left', 'ID', **label_style_oect_tab)
         self.plot_widget_4.setLabel('bottom', 'VG', units='mV', **label_style_oect_tab)
         self.plot_widget_4.showGrid(x=True, y=True)
         self.plot_widget_4.setBackground(background=(255, 255, 255))
 
         self.plot_curve_4 = self.plot_widget_4.plot(pen='r')
+        self.plot_marker_4 = self.plot_widget_4.plot(pen='g', symbol='o', symbolSize=15, symbolBrush='b', symbolPen='b')
 
         # ---- ID vs VD graph ----
         self.plot_widget_5 = pg.PlotWidget(self.tab_oect)
-        self.plot_widget_5.setGeometry(0, 320, 1400, 300)
+        self.plot_widget_5.setGeometry(0, 320, 1380, 300)
         self.plot_widget_5.setLabel('left', 'ID', **label_style_oect_tab)
         self.plot_widget_5.setLabel('bottom', 'VD', units='mV', **label_style_oect_tab)
         self.plot_widget_5.showGrid(x=True, y=True)
         self.plot_widget_5.setBackground(background=(255, 255, 255))
 
         self.plot_curve_5 = self.plot_widget_5.plot(pen='r')
+        self.plot_marker_5 = self.plot_widget_5.plot(pen='g', symbol='o', symbolSize=15, symbolBrush='b', symbolPen='b')
 
         # ---- Reset graph ----
         self.reset_graph_btn = QPushButton("Reset Graph", self)
@@ -431,6 +443,8 @@ class BLEApp(QWidget):
         self.plot_curve_1.setData([], [])
         self.plot_curve_2.setData([], [])
         self.plot_curve_3.setData([], [])
+        self.plot_curve_4.setData([], [])
+        self.plot_curve_5.setData([], [])
 
         # reset .csv data
         self.csv_time.clear()
@@ -586,6 +600,8 @@ class BLEApp(QWidget):
         # ---- pyqtgraph Handler ----
         # ---- decode ----
         channel_1 = np.int32(int.from_bytes(data[0:2], byteorder='big', signed=True))
+        # adc_0_value = float(int(match_2.group(1)) - 1280)/-326        # Formula for ID, PEDOT
+        channel_1 = (channel_1 - 1215) / -10000.0
         channel_2 = np.int32(int.from_bytes(data[2:4], byteorder='big', signed=True))
         channel_3 = np.int32(int.from_bytes(data[4:6], byteorder='big', signed=True))
 
@@ -607,6 +623,8 @@ class BLEApp(QWidget):
         # ---- oect tab
         self.plot_curve_4.setData(list(self.data_buffer_3), list(self.data_buffer_1))   # VG - ID
         self.plot_curve_5.setData(list(self.data_buffer_2), list(self.data_buffer_1))   # VD - ID
+        self.plot_marker_4.setData(list([channel_3]), list([channel_1]))
+        self.plot_marker_5.setData(list([channel_2]), list([channel_1]))
 
         # ---- optional text display ----
         self.rx_box.append(f"{t:.3f}s : {channel_1}")
