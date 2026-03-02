@@ -22,12 +22,14 @@ class ChannelConfig:
     step: int
     fixed_value: int
     enabled: bool
+    direction: bool
 
 
 # SERVICE_UUID = "00001234-0000-1000-8000-00805f9b34fb"
 # CHAR_UUID    = "00009876-0000-1000-8000-00805f9b34fb"
 SERVICE_UUID = "1234"
 CHAR_UUID    = "9876"
+CMD_CHAR_UUID = "9000"
 
 # ================ SET DATA SEND IN A LOOP ================
 # class LoopWorker(QThread):
@@ -104,6 +106,10 @@ class BLEWorker(QThread):
     async def write_data(self, data: bytes):
         if self.client and self.client.is_connected:
             await self.client.write_gatt_char(CHAR_UUID, data)
+
+    async def write_cmd_data(self, data: bytes):
+        if self.client and self.client.is_connected:
+            await self.client.write_gatt_char(CMD_CHAR_UUID, data)
 
     # async def send_loop_data(self, start, stop, step, interval_s):
     #     val = start
@@ -187,6 +193,8 @@ class BLEWorker(QThread):
         ch1_loop = ch1.start
         ch2_loop = ch2.start
 
+        backward_sweep = 0
+
         self.loop_running = True
 
         while self.loop_running:
@@ -206,23 +214,57 @@ class BLEWorker(QThread):
             # Advance enabled channels only
             if ch1.enabled:
                 if ch1.start <= ch1.stop:
-                    ch1_loop += ch1.step
-                    if ch1_loop > ch1.stop:     # Should not let equality (=)
-                        break
+                    if backward_sweep == 0:
+                        ch1_loop += ch1.step
+                        if ch1_loop > ch1.stop:     # Should not let equality (=)
+                            if ch1.direction:
+                                backward_sweep = 1
+                            else:
+                                break
+                    if backward_sweep == 1:
+                        ch1_loop -= ch1.step
+                        if ch1_loop < ch1.start:
+                            break
+
                 elif ch1.start >= ch1.stop:
-                    ch1_loop -= ch1.step
-                    if ch1_loop < ch1.stop:
-                        break
+                    if backward_sweep == 0:
+                        ch1_loop -= ch1.step
+                        if ch1_loop < ch1.stop:
+                            if ch1.direction:
+                                backward_sweep = 1
+                            else:
+                                break
+                    if backward_sweep == 1:
+                        ch1_loop += ch1.step
+                        if ch1_loop > ch1.start:
+                            break
 
             if ch2.enabled:
                 if ch2.start <= ch2.stop:
-                    ch2_loop += ch2.step
-                    if ch2_loop > ch2.stop:
-                        break
+                    if backward_sweep == 0:
+                        ch2_loop += ch2.step
+                        if ch2_loop > ch2.stop:
+                            if ch2.direction:
+                                backward_sweep = 1
+                            else:
+                                break
+                    if backward_sweep == 1:
+                        ch2_loop -= ch2.step
+                        if ch2_loop < ch2.start:
+                            break
+
                 elif ch2.start >= ch2.stop:
-                    ch2_loop -= ch2.step
-                    if ch2_loop < ch2.stop:     # Should not let equality (=)
-                        break
+                    if backward_sweep == 0:
+                        ch2_loop -= ch2.step
+                        if ch2_loop < ch2.stop:     # Should not let equality (=)
+                            if ch2.direction:
+                                backward_sweep = 1
+                            else:
+                                break
+                    if backward_sweep == 1:
+                        ch2_loop += ch2.step
+                        if ch2_loop > ch2.start:
+                            break
 
 
 
@@ -310,6 +352,10 @@ class BLEApp(QWidget):
         self.interval_edit = QLineEdit(self)
         self.interval_edit.setGeometry(130, 470, 100, 25)
 
+        QLabel("Dual direction:", self).setGeometry(250, 470, 100, 25)
+        self.direction_enable = QCheckBox(self)
+        self.direction_enable.setGeometry(360, 470, 100, 25)
+
         self.start_loop_btn = QPushButton("Start Loop", self)
         self.start_loop_btn.setGeometry(20, 550, 120, 25)
         self.start_loop_btn.clicked.connect(self.start_loop)
@@ -332,6 +378,15 @@ class BLEApp(QWidget):
 
         self.ch1_enable.stateChanged.connect(self.on_ch1_enable_changed)
         self.ch2_enable.stateChanged.connect(self.on_ch2_enable_changed)
+
+        # Command (CMD) setup
+        QLabel("Send command:", self).setGeometry(20, 700, 100, 30)
+        self.cmd_edit = QLineEdit("0001", self)          # Constant (default value is "0")
+        self.cmd_edit.setGeometry(130, 700, 100, 30)
+
+        self.send_cmd_btn = QPushButton("Send", self)
+        self.send_cmd_btn.setGeometry(250, 700, 100, 30)
+        self.send_cmd_btn.clicked.connect(self.send_cmd_data)
 
         # Initial state
         self.on_ch1_enable_changed(self.ch1_enable.checkState())
@@ -490,7 +545,8 @@ class BLEApp(QWidget):
             stop=int(self.stop_edit_1.text()),
             step=int(self.step_edit_1.text()),
             fixed_value=int(self.ch1_value_edit.text()),
-            enabled=self.ch1_enable.isChecked()
+            enabled=self.ch1_enable.isChecked(),
+            direction=self.direction_enable.isChecked()
         )
     
     def get_ch2_config(self) -> ChannelConfig:
@@ -499,7 +555,8 @@ class BLEApp(QWidget):
             stop=int(self.stop_edit_2.text()),
             step=int(self.step_edit_2.text()),
             fixed_value=int(self.ch2_value_edit.text()),
-            enabled=self.ch2_enable.isChecked()
+            enabled=self.ch2_enable.isChecked(),
+            direction=self.direction_enable.isChecked()
         )
 
     # ---- Check enable chanel ----
@@ -591,6 +648,26 @@ class BLEApp(QWidget):
             self.ble_worker.loop
         )
 
+    def send_cmd_data(self):
+        if not self.ble_worker:
+            return
+
+        text = self.cmd_edit.text().strip()
+        fmt = self.format_box.currentText()
+
+        try:
+            if fmt == "Hex":
+                data = bytes.fromhex(text)
+            else:
+                data = bytes([int(text)])
+        except ValueError:
+            return
+
+        # asyncio.create_task(self.ble_worker.write_data(data))
+        asyncio.run_coroutine_threadsafe(
+            self.ble_worker.write_cmd_data(data),
+            self.ble_worker.loop
+        )
 
     # ---------- Receive ----------
     def on_rx_data(self, data: bytes):
@@ -601,9 +678,17 @@ class BLEApp(QWidget):
         # ---- decode ----
         channel_1 = np.int32(int.from_bytes(data[0:2], byteorder='big', signed=True))
         # adc_0_value = float(int(match_2.group(1)) - 1280)/-326        # Formula for ID, PEDOT
-        channel_1 = (channel_1 - 1215) / -10000.0
+        channel_1 = (channel_1 - 650) / -10000.0
         channel_2 = np.int32(int.from_bytes(data[2:4], byteorder='big', signed=True))
+        # Calibrate with coefficient a, b
+        channel_2_coef_a = 0.9936
+        channel_2_coef_b = 3.4410
+        channel_2 = channel_2 * channel_2_coef_a + channel_2_coef_b
         channel_3 = np.int32(int.from_bytes(data[4:6], byteorder='big', signed=True))
+        # Calibrate with coefficient a, b
+        channel_3_coef_a = 0.9920
+        channel_3_coef_b = 11.8900
+        channel_3 = channel_3 * channel_3_coef_a + channel_3_coef_b
 
         # ---- time ----
         t = time.perf_counter() - self.t0
