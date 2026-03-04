@@ -290,7 +290,7 @@ class BLEApp(QWidget):
         # ---- Main Tab window ----
         # ---- Device name ----
         QLabel("Device Name:", self).setGeometry(20, 20, 100, 25)
-        self.device_edit = QLineEdit(self)
+        self.device_edit = QLineEdit("NML", self)
         self.device_edit.setGeometry(130, 20, 200, 25)
 
         self.scan_btn = QPushButton("Scan", self)                   # Scan & connect
@@ -381,7 +381,7 @@ class BLEApp(QWidget):
 
         # Command (CMD) setup
         QLabel("Send command:", self).setGeometry(20, 700, 100, 30)
-        self.cmd_edit = QLineEdit("0001", self)          # Constant (default value is "0")
+        self.cmd_edit = QLineEdit("01", self)          # Constant (default value is "0")
         self.cmd_edit.setGeometry(130, 700, 100, 30)
 
         self.send_cmd_btn = QPushButton("Send", self)
@@ -669,6 +669,14 @@ class BLEApp(QWidget):
             self.ble_worker.loop
         )
 
+        if (data == b'\x00'):
+            reset_packet = b'\x00\x00\x00\x00\x00\x00\x00\x00'
+            print(data)
+            asyncio.run_coroutine_threadsafe(
+                self.ble_worker.write_data(reset_packet),
+                self.ble_worker.loop
+            )
+
     # ---------- Receive ----------
     def on_rx_data(self, data: bytes):
         hex_str = " ".join(f"{b:02X}" for b in data)
@@ -679,6 +687,9 @@ class BLEApp(QWidget):
         channel_1 = np.int32(int.from_bytes(data[0:2], byteorder='big', signed=True))
         # adc_0_value = float(int(match_2.group(1)) - 1280)/-326        # Formula for ID, PEDOT
         channel_1 = (channel_1 - 650) / -10000.0
+        channel_1_coef_a = 1.77786
+        channel_1_coef_b = 0.11202
+        channel_1 = channel_1 * channel_1_coef_a + channel_1_coef_b
         channel_2 = np.int32(int.from_bytes(data[2:4], byteorder='big', signed=True))
         # Calibrate with coefficient a, b
         channel_2_coef_a = 0.9936
@@ -711,10 +722,10 @@ class BLEApp(QWidget):
         self.plot_marker_4.setData(list([channel_3]), list([channel_1]))
         self.plot_marker_5.setData(list([channel_2]), list([channel_1]))
 
-        # ---- optional text display ----
-        self.rx_box.append(f"{t:.3f}s : {channel_1}")
-        self.rx_box.append(f"{t:.3f}s : {channel_2}")
-        self.rx_box.append(f"{t:.3f}s : {channel_3}")
+        # # ---- optional text display ----
+        # self.rx_box.append(f"{t:.3f}s : {channel_1}")
+        # self.rx_box.append(f"{t:.3f}s : {channel_2}")
+        # self.rx_box.append(f"{t:.3f}s : {channel_3}")
 
         # ---- save to .csv array ----
         self.csv_time.append(t)
