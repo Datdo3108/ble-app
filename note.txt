@@ -1,0 +1,8 @@
+5-3-2026
+inject current:
+Au gate: Drain set: 0-10000
+ID: ~4-5uA
+Gate: 13000 (1V)
+
+Run TF with different VD:
+Gate: Au

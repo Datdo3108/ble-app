@@ -384,6 +384,9 @@ class BLEApp(QWidget):
         # Command (CMD) setup
         QLabel("Send command:", self).setGeometry(20, 700, 100, 30)
         self.cmd_edit = QLineEdit("01", self)          # Constant (default value is "0")
+        # 01: voltage measure
+        # 02: inject current
+        # 00: reset
         self.cmd_edit.setGeometry(130, 700, 100, 30)
 
         self.send_cmd_btn = QPushButton("Send", self)
