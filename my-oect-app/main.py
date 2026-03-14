@@ -195,6 +195,8 @@ class BLEWorker(QThread):
 
         backward_sweep = 0
 
+        t0_loop = time.perf_counter()
+
         self.loop_running = True
 
         while self.loop_running:
@@ -267,8 +269,39 @@ class BLEWorker(QThread):
                         ch2_loop += ch2.step
                         if ch2_loop > ch2.start:
                             break
+    
+    async def send_sine_data(self, ch1: ChannelConfig, ch2: ChannelConfig, interval_s: float, sine_period_s: float, sine_step_s: float):
+        ch1_loop = ch1.start
+        ch2_loop = ch2.start
 
+        period_counter = 0
 
+        self.loop_running = True
+
+        while self.loop_running:
+            # Decide values
+            ch1_loop_send_value = ch1_loop if ch1_loop >= 0 else ch1_loop + 65536
+            ch2_loop_send_value = ch2_loop if ch2_loop >= 0 else ch2_loop + 65536
+            v1 = ch1_loop_send_value if ch1.enabled else ch1.fixed_value
+            v2 = ch2_loop_send_value if ch2.enabled else ch2.fixed_value
+
+            # Merge packet
+            packet = (
+                v1.to_bytes(2, 'big', signed=False) +
+                v2.to_bytes(2, 'big', signed=False)
+            )
+
+            await self.write_data(packet)
+            await asyncio.sleep(interval_s)
+
+            # Advance enabled channels only
+            if ch1.enabled:
+                if period_counter <= sine_period_s:
+                    ch1_loop = int(ch1.start + (ch1.stop - ch1.start) * np.sin(period_counter*2*np.pi/sine_period_s))
+                    period_counter += sine_step_s
+
+                    print(ch1_loop, "\t", period_counter)
+                else: break
 
 # ================= MAIN UI =================
 class BLEApp(QWidget):
@@ -377,6 +410,14 @@ class BLEApp(QWidget):
         self.ch2_enable.setGeometry(250, 290, 100, 100)
         self.ch2_value_edit = QLineEdit("0", self)          # Constant (default value is "0")
         self.ch2_value_edit.setGeometry(360, 510, 100, 25)
+
+        QLabel("Sine period:", self).setGeometry(250, 550, 100, 25)
+        self.sine_value_edit = QLineEdit("0", self)
+        self.sine_value_edit.setGeometry(360, 550, 100, 25)
+
+        QLabel("Sine step:", self).setGeometry(250, 590, 100, 25)
+        self.sine_step_edit = QLineEdit("0", self)
+        self.sine_step_edit.setGeometry(360, 590, 100, 25)
 
         self.ch1_enable.stateChanged.connect(self.on_ch1_enable_changed)
         self.ch2_enable.stateChanged.connect(self.on_ch2_enable_changed)
@@ -536,7 +577,7 @@ class BLEApp(QWidget):
 
         with open(filename, mode='w', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(["Time (s)", "Channel 1 (mV)", "Channel 2 (mV)", "Channel 3 (mV)"])
+            writer.writerow(["Time (s)", "Channel 1 (mA)", "Channel 2 (mV)", "Channel 3 (mV)"])
 
             for t, c1, c2, c3 in zip(self.csv_time, self.csv_ch1, self.csv_ch2, self.csv_ch3):
                 writer.writerow([t, c1, c2, c3])
@@ -695,16 +736,25 @@ class BLEApp(QWidget):
         channel_1_coef_a = 1.77786
         channel_1_coef_b = 0.11202
         channel_1 = channel_1 * channel_1_coef_a + channel_1_coef_b
+
         channel_2 = np.int32(int.from_bytes(data[2:4], byteorder='big', signed=True))
         # Calibrate with coefficient a, b
         channel_2_coef_a = 0.9936
         channel_2_coef_b = 3.4410
         channel_2 = channel_2 * channel_2_coef_a + channel_2_coef_b
+
         channel_3 = np.int32(int.from_bytes(data[4:6], byteorder='big', signed=True))
         # Calibrate with coefficient a, b
         channel_3_coef_a = 0.9920
         channel_3_coef_b = 11.8900
         channel_3 = channel_3 * channel_3_coef_a + channel_3_coef_b
+        if channel_3 < 1150:
+            channel_3_coef_a2 = 2.0049
+            channel_3_coef_b2 = -1326
+        else: 
+            channel_3_coef_a2 = 1.9317
+            channel_3_coef_b2 = -1230.9
+        channel_3 = channel_3 * channel_3_coef_a2 + channel_3_coef_b2
 
         # ---- time ----
         t = time.perf_counter() - self.t0
@@ -740,15 +790,11 @@ class BLEApp(QWidget):
 
     # ---------- Set data in a loop ----------
     def start_loop(self):
-        # start_1 = int(self.start_edit_1.text())
-        # stop_1 = int(self.stop_edit_1.text())
-        # step_1 = int(self.step_edit_1.text())
-
-        # start_2 = int(self.start_edit_2.text())
-        # stop_2 = int(self.stop_edit_2.text())
-        # step_2 = int(self.step_edit_2.text())
 
         interval_s = int(self.interval_edit.text()) / 1000
+
+        sine_period_s = int(self.sine_value_edit.text()) / 1000
+        sine_step_s = int(self.sine_step_edit.text()) / 1000
 
         ch1_cfg = self.get_ch1_config()
         ch2_cfg = self.get_ch2_config()
@@ -757,8 +803,8 @@ class BLEApp(QWidget):
         # # self.loop_worker.update_value.connect(self.show_loop_value)  # optional
         # self.loop_worker.run()
         asyncio.run_coroutine_threadsafe(
-        # self.ble_worker.send_loop_data(start_1, stop_1, step_1, start_2, stop_2, step_2, interval),
         self.ble_worker.send_loop_data(ch1_cfg, ch2_cfg, interval_s),
+        # self.ble_worker.send_sine_data(ch1_cfg, ch2_cfg, interval_s, sine_period_s, sine_step_s),
         self.ble_worker.loop
     )
 
