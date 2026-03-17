@@ -439,14 +439,16 @@ class BLEApp(QWidget):
         self.on_ch2_enable_changed(self.ch2_enable.checkState())
 
         # ---- pyqtgraph ----
-        self.max_points = 2000
+        self.max_points = 20000
 
         self.time_buffer = deque(maxlen=self.max_points)
+        self.time_ble_buffer = deque(maxlen=self.max_points)
         self.data_buffer_1 = deque(maxlen=self.max_points)
         self.data_buffer_2 = deque(maxlen=self.max_points)
         self.data_buffer_3 = deque(maxlen=self.max_points)
 
-        self.t0 = time.perf_counter()
+        # self.t0 = time.perf_counter()
+        self.reset_time_request = 1
 
         # ---- Axis label style
         label_style_main_tab = {
@@ -532,7 +534,9 @@ class BLEApp(QWidget):
 
     def reset_graph(self):
         # reset time reference
-        self.t0 = time.perf_counter()
+        # self.t0 = time.perf_counter()
+        # self.t0 = self.t_ble       # Change time ble
+        self.reset_time_request = 1
 
         # clear buffers
         self.time_buffer.clear()
@@ -757,10 +761,18 @@ class BLEApp(QWidget):
         channel_3 = channel_3 * channel_3_coef_a2 + channel_3_coef_b2
 
         # ---- time ----
-        t = time.perf_counter() - self.t0
+        # t = time.perf_counter() - self.t0       # Python time
+        self.t_ble = np.int32(int.from_bytes(data[10:18], byteorder='big', signed=True))/1000
+
+        if self.reset_time_request:
+            self.t0 = self.t_ble
+            self.reset_time_request = 0
+
+        self.t_ble = self.t_ble - self.t0
 
         # ---- push into deque ----
-        self.time_buffer.append(t)
+        # self.time_buffer.append(t)
+        self.time_buffer.append(self.t_ble)              # Change time ble
         self.data_buffer_1.append(channel_1)
         self.data_buffer_2.append(channel_2)
         self.data_buffer_3.append(channel_3)
@@ -783,7 +795,8 @@ class BLEApp(QWidget):
         # self.rx_box.append(f"{t:.3f}s : {channel_3}")
 
         # ---- save to .csv array ----
-        self.csv_time.append(t)
+        # self.csv_time.append(t)             
+        self.csv_time.append(self.t_ble)                 # Change time ble
         self.csv_ch1.append(channel_1)
         self.csv_ch2.append(channel_2)
         self.csv_ch3.append(channel_3)
