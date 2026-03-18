@@ -9,7 +9,7 @@ from collections import deque
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QPushButton, QLineEdit,
     QTextEdit, QLabel, QComboBox, QCheckBox,
-    QTabWidget,
+    QTabWidget, QStackedWidget,
 )
 from PyQt5.QtCore import QTimer, QThread, pyqtSignal, Qt
 from bleak import BleakScanner, BleakClient
@@ -17,12 +17,20 @@ from dataclasses import dataclass
 
 @dataclass
 class ChannelConfig:
+    loop: int
     start: int
     stop: int
     step: int
     fixed_value: int
     enabled: bool
     direction: bool
+    period: int
+    # sine_high: int
+    # sine_low: int
+    # sine_period: int
+    # pulse_high: int
+    # pulse_low: int
+    # pulse_period: int
 
 
 # SERVICE_UUID = "00001234-0000-1000-8000-00805f9b34fb"
@@ -69,6 +77,8 @@ class BLEWorker(QThread):
     scan_failed = pyqtSignal()
     rx_data = pyqtSignal(bytes)
 
+    loop_running = False
+
     def __init__(self, device_name):
         super().__init__()
         self.device_name = device_name
@@ -111,76 +121,6 @@ class BLEWorker(QThread):
         if self.client and self.client.is_connected:
             await self.client.write_gatt_char(CMD_CHAR_UUID, data)
 
-    # async def send_loop_data(self, start, stop, step, interval_s):
-    #     val = start
-    #     self.loop_running = True
-    #     while self.loop_running and val < stop:
-    #         # await self.write_data(bytes([val]))
-    #         await self.write_data(val.to_bytes(2, byteorder='big', signed=False))
-    #         await asyncio.sleep(interval_s)
-    #         val += step
-    #         print(val)
-
-    # async def send_loop_data(
-    #         self,
-    #         ch1_start, ch1_stop, ch1_step,
-    #         ch2_start, ch2_stop, ch2_step,
-    #         interval_s
-    #     ):
-    #     ch1 = ch1_start
-    #     ch2 = ch2_start
-    #     self.loop_running = True
-
-    #     while self.loop_running and ch1 < ch1_stop and ch2 < ch2_stop:
-    #         packet = (
-    #             ch1.to_bytes(2, byteorder='big', signed=False) +
-    #             ch2.to_bytes(2, byteorder='big', signed=False)
-    #         )
-
-    #         await self.write_data(packet)
-    #         await asyncio.sleep(interval_s)
-
-    #         ch1 += ch1_step
-    #         ch2 += ch2_step
-
-    #         print(f"CH1={ch1}, CH2={ch2}")
-
-    # async def send_loop_data(
-    #         self,
-    #         ch1_start, ch1_stop, ch1_step,
-    #         ch2_start, ch2_stop, ch2_step,
-    #         interval_s
-    #     ):
-    #     ch1_loop = ch1_start
-    #     ch2_loop = ch2_start
-    #     self.loop_running = True
-
-    #     while self.loop_running:
-    #         ch1 = self.get_ch1_value(ch1_loop)
-    #         ch2 = self.get_ch2_value(ch2_loop)
-
-    #         packet = (
-    #             ch1.to_bytes(2, 'big', signed=False) +
-    #             ch2.to_bytes(2, 'big', signed=False)
-    #         )
-
-    #         await self.write_data(packet)
-    #         await asyncio.sleep(interval_s)
-
-    #         if self.ch1_enable.isChecked():
-    #             ch1_loop += ch1_step
-    #             if ch1_loop >= ch1_stop:
-    #                 break
-
-    #         if self.ch2_enable.isChecked():
-    #             ch2_loop += ch2_step
-    #             if ch2_loop >= ch2_stop:
-    #                 break
-
-    # async def disconnect_ble(self):
-    #     if self.client and self.client.is_connected:
-    #         await self.client.disconnect()
-
     async def disconnect(self):
         if self.client and self.client.is_connected:
             try:
@@ -189,119 +129,330 @@ class BLEWorker(QThread):
             except Exception:
                 pass
 
-    async def send_loop_data(self, ch1: ChannelConfig, ch2: ChannelConfig, interval_s: float):
-        ch1_loop = ch1.start
-        ch2_loop = ch2.start
+    async def send_loop_data(self, ch1: ChannelConfig, ch2: ChannelConfig, waveform_index: int, interval_s: float, num_cycles: int):
+        try:
+            for cycle in range(num_cycles):
+                print(f"Cycle {cycle+1}/{num_cycles}")
 
-        backward_sweep = 0
+                if waveform_index == 0:
+                    ch1.loop = ch1.start
+                    ch2.loop = ch2.start
 
-        t0_loop = time.perf_counter()
+                if waveform_index == 1:
+                    ch1.loop = int((ch1.start + ch1.stop)/2)
+                    ch2.loop = int((ch2.start + ch2.stop)/2)
 
-        self.loop_running = True
+                backward_sweep = 0
 
-        while self.loop_running:
-            # Decide values
-            ch1_loop_send_value = ch1_loop if ch1_loop >= 0 else ch1_loop + 65536
-            ch2_loop_send_value = ch2_loop if ch2_loop >= 0 else ch2_loop + 65536
-            v1 = ch1_loop_send_value if ch1.enabled else ch1.fixed_value
-            v2 = ch2_loop_send_value if ch2.enabled else ch2.fixed_value
+                ch1_period_counter = 0
+                ch1_period_steps = int((ch1.period/1000) / interval_s)
+                ch2_period_counter = 0
+                ch2_period_steps = int((ch2.period/1000) / interval_s)
 
-            # Merge packet
-            packet = (
-                v1.to_bytes(2, 'big', signed=False) +
-                v2.to_bytes(2, 'big', signed=False)
-            )
+                while True:
+                    # Decide values
+                    ch1_loop_send_value = ch1.loop if ch1.loop >= 0 else ch1.loop + 65536
+                    ch2_loop_send_value = ch2.loop if ch2.loop >= 0 else ch2.loop + 65536
+                    v1 = ch1_loop_send_value if ch1.enabled else ch1.fixed_value
+                    v2 = ch2_loop_send_value if ch2.enabled else ch2.fixed_value
 
-            await self.write_data(packet)
-            await asyncio.sleep(interval_s)
+                    # Merge packet
+                    packet = (
+                        v1.to_bytes(2, 'big', signed=False) +
+                        v2.to_bytes(2, 'big', signed=False)
+                    )
 
-            # Advance enabled channels only
-            if ch1.enabled:
-                if ch1.start <= ch1.stop:
-                    if backward_sweep == 0:
-                        ch1_loop += ch1.step
-                        if ch1_loop > ch1.stop:     # Should not let equality (=)
-                            if ch1.direction:
-                                backward_sweep = 1
-                            else:
+                    await self.write_data(packet)
+                    await asyncio.sleep(interval_s)
+
+                    if ch1.enabled:
+                        '''
+                        Triangle waveform
+                        '''
+                        if waveform_index == 0:    
+                            if ch1.start <= ch1.stop:
+                                if backward_sweep == 0:
+                                    ch1.loop += ch1.step
+                                    if ch1.loop > ch1.stop:     # Should not let equality (=)
+                                        if ch1.direction:
+                                            backward_sweep = 1
+                                        else:
+                                            break
+                                if backward_sweep == 1:
+                                    ch1.loop -= ch1.step
+                                    if ch1.loop < ch1.start:
+                                        break
+
+                            elif ch1.start >= ch1.stop:
+                                if backward_sweep == 0:
+                                    ch1.loop -= ch1.step
+                                    if ch1.loop < ch1.stop:
+                                        if ch1.direction:
+                                            backward_sweep = 1
+                                        else:
+                                            break
+                                if backward_sweep == 1:
+                                    ch1.loop += ch1.step
+                                    if ch1.loop > ch1.start:
+                                        break
+                        '''
+                        Sine waveform
+                        '''
+                        if waveform_index == 1:
+                            if ch1_period_counter <= ch1_period_steps:
+                                ch1.loop = int((ch1.start + ch1.stop)/2 + (ch1.start - ch1.stop) * np.sin(ch1_period_counter*2*np.pi/ch1_period_steps)/2)
+                                ch1_period_counter += 1
+                            else: 
                                 break
-                    if backward_sweep == 1:
-                        ch1_loop -= ch1.step
-                        if ch1_loop < ch1.start:
-                            break
 
-                elif ch1.start >= ch1.stop:
-                    if backward_sweep == 0:
-                        ch1_loop -= ch1.step
-                        if ch1_loop < ch1.stop:
-                            if ch1.direction:
-                                backward_sweep = 1
-                            else:
+                        '''
+                        Pulse waveform
+                        '''
+                        if waveform_index == 2:
+                            if ch1_period_counter <= ch1_period_steps:
+                                if ch1_period_counter < ch1_period_steps*ch1.step/100:
+                                    ch1.loop = ch1.stop
+                                else:
+                                    ch1.loop = ch1.start
+                                ch1_period_counter += 1
+                            else: 
                                 break
-                    if backward_sweep == 1:
-                        ch1_loop += ch1.step
-                        if ch1_loop > ch1.start:
-                            break
 
-            if ch2.enabled:
-                if ch2.start <= ch2.stop:
-                    if backward_sweep == 0:
-                        ch2_loop += ch2.step
-                        if ch2_loop > ch2.stop:
-                            if ch2.direction:
-                                backward_sweep = 1
-                            else:
+                    if ch2.enabled:
+                        '''
+                        Triangle waveform
+                        '''
+                        if waveform_index == 0:  
+                            if ch2.start <= ch2.stop:
+                                if backward_sweep == 0:
+                                    ch2.loop += ch2.step
+                                    if ch2.loop > ch2.stop:
+                                        if ch2.direction:
+                                            backward_sweep = 1
+                                        else:
+                                            break
+                                if backward_sweep == 1:
+                                    ch2.loop -= ch2.step
+                                    if ch2.loop < ch2.start:
+                                        break
+
+                            elif ch2.start >= ch2.stop:
+                                if backward_sweep == 0:
+                                    ch2.loop -= ch2.step
+                                    if ch2.loop < ch2.stop:     # Should not let equality (=)
+                                        if ch2.direction:
+                                            backward_sweep = 1
+                                        else:
+                                            break
+                                if backward_sweep == 1:
+                                    ch2.loop += ch2.step
+                                    if ch2.loop > ch2.start:
+                                        break
+                        '''
+                        Sine waveform
+                        '''
+                        if waveform_index == 1:
+                            if ch2_period_counter <= ch2_period_steps:
+                                ch2.loop = int((ch2.start + ch2.stop)/2 + (ch2.start - ch2.stop) * np.sin(ch2_period_counter*2*np.pi/ch2_period_steps)/2)
+                                ch2_period_counter += 1
+                            else: 
                                 break
-                    if backward_sweep == 1:
-                        ch2_loop -= ch2.step
-                        if ch2_loop < ch2.start:
-                            break
-
-                elif ch2.start >= ch2.stop:
-                    if backward_sweep == 0:
-                        ch2_loop -= ch2.step
-                        if ch2_loop < ch2.stop:     # Should not let equality (=)
-                            if ch2.direction:
-                                backward_sweep = 1
-                            else:
+                        '''
+                        Pulse waveform
+                        '''
+                        if waveform_index == 2:
+                            if ch2_period_counter <= ch2_period_steps:
+                                if ch2_period_counter < ch2_period_steps*ch2.step/100:
+                                    ch2.loop = ch2.stop
+                                else:
+                                    ch2.loop = ch2.start
+                                ch2_period_counter += 1
+                            else: 
                                 break
-                    if backward_sweep == 1:
-                        ch2_loop += ch2.step
-                        if ch2_loop > ch2.start:
-                            break
-    
-    async def send_sine_data(self, ch1: ChannelConfig, ch2: ChannelConfig, interval_s: float, sine_period_s: float, sine_step_s: float):
-        ch1_loop = ch1.start
-        ch2_loop = ch2.start
 
-        period_counter = 0
+        except asyncio.CancelledError:
+            print("Loop task cancelled")
+            raise
 
-        self.loop_running = True
+        # ---- End ----
 
-        while self.loop_running:
-            # Decide values
-            ch1_loop_send_value = ch1_loop if ch1_loop >= 0 else ch1_loop + 65536
-            ch2_loop_send_value = ch2_loop if ch2_loop >= 0 else ch2_loop + 65536
-            v1 = ch1_loop_send_value if ch1.enabled else ch1.fixed_value
-            v2 = ch2_loop_send_value if ch2.enabled else ch2.fixed_value
+    # async def send_triangle_data(self, ch1: ChannelConfig, ch2: ChannelConfig, interval_s: float):
+    #     try:
+    #         ch1.loop = ch1.start
+    #         ch2.loop = ch2.start
 
-            # Merge packet
-            packet = (
-                v1.to_bytes(2, 'big', signed=False) +
-                v2.to_bytes(2, 'big', signed=False)
-            )
+    #         backward_sweep = 0
 
-            await self.write_data(packet)
-            await asyncio.sleep(interval_s)
+    #         # t0_loop = time.perf_counter()
 
-            # Advance enabled channels only
-            if ch1.enabled:
-                if period_counter <= sine_period_s:
-                    ch1_loop = int(ch1.start + (ch1.stop - ch1.start) * np.sin(period_counter*2*np.pi/sine_period_s))
-                    period_counter += sine_step_s
+    #         while True:
+    #             # Decide values
+    #             ch1_loop_send_value = ch1.loop if ch1.loop >= 0 else ch1.loop + 65536
+    #             ch2_loop_send_value = ch2.loop if ch2.loop >= 0 else ch2.loop + 65536
+    #             v1 = ch1_loop_send_value if ch1.enabled else ch1.fixed_value
+    #             v2 = ch2_loop_send_value if ch2.enabled else ch2.fixed_value
 
-                    print(ch1_loop, "\t", period_counter)
-                else: break
+    #             # Merge packet
+    #             packet = (
+    #                 v1.to_bytes(2, 'big', signed=False) +
+    #                 v2.to_bytes(2, 'big', signed=False)
+    #             )
+
+    #             await self.write_data(packet)
+    #             await asyncio.sleep(interval_s)
+
+    #             # Advance enabled channels only
+    #             if ch1.enabled:
+    #                 if ch1.start <= ch1.stop:
+    #                     if backward_sweep == 0:
+    #                         ch1.loop += ch1.step
+    #                         if ch1.loop > ch1.stop:     # Should not let equality (=)
+    #                             if ch1.direction:
+    #                                 backward_sweep = 1
+    #                             else:
+    #                                 break
+    #                     if backward_sweep == 1:
+    #                         ch1.loop -= ch1.step
+    #                         if ch1.loop < ch1.start:
+    #                             break
+
+    #                 elif ch1.start >= ch1.stop:
+    #                     if backward_sweep == 0:
+    #                         ch1.loop -= ch1.step
+    #                         if ch1.loop < ch1.stop:
+    #                             if ch1.direction:
+    #                                 backward_sweep = 1
+    #                             else:
+    #                                 break
+    #                     if backward_sweep == 1:
+    #                         ch1.loop += ch1.step
+    #                         if ch1.loop > ch1.start:
+    #                             break
+
+    #             if ch2.enabled:
+    #                 if ch2.start <= ch2.stop:
+    #                     if backward_sweep == 0:
+    #                         ch2.loop += ch2.step
+    #                         if ch2.loop > ch2.stop:
+    #                             if ch2.direction:
+    #                                 backward_sweep = 1
+    #                             else:
+    #                                 break
+    #                     if backward_sweep == 1:
+    #                         ch2.loop -= ch2.step
+    #                         if ch2.loop < ch2.start:
+    #                             break
+
+    #                 elif ch2.start >= ch2.stop:
+    #                     if backward_sweep == 0:
+    #                         ch2.loop -= ch2.step
+    #                         if ch2.loop < ch2.stop:     # Should not let equality (=)
+    #                             if ch2.direction:
+    #                                 backward_sweep = 1
+    #                             else:
+    #                                 break
+    #                     if backward_sweep == 1:
+    #                         ch2.loop += ch2.step
+    #                         if ch2.loop > ch2.start:
+    #                             break
+    #     except asyncio.CancelledError:
+    #         print("Loop task cancelled")
+    #         raise
+
+    # async def send_sine_data(self, ch1: ChannelConfig, ch2: ChannelConfig, interval_s: float):
+    #     try: 
+    #         ch1_loop = ch1.sine_low
+    #         ch2_loop = ch2.sine_low
+
+    #         ch1_period_counter = 0
+    #         ch1_period_steps = int((ch1.sine_period/1000) / interval_s)
+    #         ch2_period_counter = 0
+    #         ch2_period_steps = int((ch2.sine_period/1000) / interval_s)
+
+    #         while True:
+    #             # Decide values
+    #             ch1_loop_send_value = ch1_loop if ch1_loop >= 0 else ch1_loop + 65536
+    #             ch2_loop_send_value = ch2_loop if ch2_loop >= 0 else ch2_loop + 65536
+    #             v1 = ch1_loop_send_value if ch1.enabled else ch1.fixed_value
+    #             v2 = ch2_loop_send_value if ch2.enabled else ch2.fixed_value
+
+    #             # Merge packet
+    #             packet = (
+    #                 v1.to_bytes(2, 'big', signed=False) +
+    #                 v2.to_bytes(2, 'big', signed=False)
+    #             )
+
+    #             await self.write_data(packet)
+    #             await asyncio.sleep(interval_s)
+
+    #             # Advance enabled channels only
+    #             if ch1.enabled:
+    #                 if ch1_period_counter <= ch1_period_steps:
+    #                     ch1_loop = int((ch1.sine_low + ch1.sine_high)/2 + (ch1.sine_high - ch1.sine_low) * np.sin(ch1_period_counter*2*np.pi/ch1_period_steps)/2)
+    #                     ch1_period_counter += 1
+    #                     # print(ch1_loop, "\t", ch1_period_counter, "\t", ch1_loop_send_value, "\t Low: ", ch1.sine_low, "\t High: ", ch1.sine_high, "\t Period: ", ch1.sine_period)
+    #                 else: 
+    #                     break
+
+    #             if ch2.enabled:
+    #                 if ch2_period_counter <= ch2_period_steps:
+    #                     ch2_loop = int((ch2.sine_low + ch2.sine_high)/2 + (ch2.sine_high - ch2.sine_low) * np.sin(ch2_period_counter*2*np.pi/ch2_period_steps)/2)
+    #                     ch2_period_counter += 1
+    #                 else: 
+    #                     break
+    #     except asyncio.CancelledError:
+    #         print("Loop task cancelled")
+    #         raise
+
+    # async def send_pulse_data(self, ch1: ChannelConfig, ch2: ChannelConfig, interval_s: float):
+    #     try: 
+    #         ch1_loop = ch1.pulse_low
+    #         ch2_loop = ch2.pulse_low
+
+    #         ch1_period_counter = 0
+    #         ch1_period_steps = int((ch1.pulse_period/1000) / interval_s)
+    #         ch2_period_counter = 0
+    #         ch2_period_steps = int((ch2.pulse_period/1000) / interval_s)
+
+    #         while True:
+    #             # Decide values
+    #             ch1_loop_send_value = ch1_loop if ch1_loop >= 0 else ch1_loop + 65536
+    #             ch2_loop_send_value = ch2_loop if ch2_loop >= 0 else ch2_loop + 65536
+    #             v1 = ch1_loop_send_value if ch1.enabled else ch1.fixed_value
+    #             v2 = ch2_loop_send_value if ch2.enabled else ch2.fixed_value
+
+    #             # Merge packet
+    #             packet = (
+    #                 v1.to_bytes(2, 'big', signed=False) +
+    #                 v2.to_bytes(2, 'big', signed=False)
+    #             )
+
+    #             await self.write_data(packet)
+    #             await asyncio.sleep(interval_s)
+
+    #             # Advance enabled channels only
+    #             if ch1.enabled:
+    #                 if ch1_period_counter <= ch1_period_steps:
+    #                     if ch1_period_counter < ch1_period_steps/2:
+    #                         ch1_loop = int(ch1.pulse_high)
+    #                     else:
+    #                         ch1_loop = int(ch1.pulse_low)
+    #                     ch1_period_counter += 1
+    #                 else: 
+    #                     break
+
+    #             if ch2.enabled:
+    #                 if ch2_period_counter <= ch2_period_steps:
+    #                     if ch2_period_counter < ch2_period_steps/2:
+    #                         ch2_loop = int(ch2.pulse_high)
+    #                     else:
+    #                         ch2_loop = int(ch2.pulse_low)
+    #                     ch2_period_counter += 1
+    #                 else: 
+    #                     break
+    #     except asyncio.CancelledError:
+    #         print("Loop task cancelled")
+    #         raise
 
 # ================= MAIN UI =================
 class BLEApp(QWidget):
@@ -316,11 +467,23 @@ class BLEApp(QWidget):
         self.tabs = QTabWidget(self)
         self.tabs.setGeometry(490, 5, 1400, 970)  # adjust freely    500, 670, 1400, 300
 
-        self.tab_main = QWidget()
-        self.tabs.addTab(self.tab_main, "Main")
+        self.tab_time = QWidget()
+        self.tabs.addTab(self.tab_time, "Time")
 
         self.tab_oect = QWidget()
         self.tabs.addTab(self.tab_oect, "OECT")
+
+        # ---- Side Tab window, for waveform setup
+        self.tabs_waveform = QTabWidget(self)
+        self.tabs_waveform.setGeometry(10, 320, 470, 265)
+        self.tabs_waveform.tabBar().hide()
+
+        self.tab_triangle = QWidget()
+        self.tabs_waveform.addTab(self.tab_triangle, "Triangle")
+        self.tab_sine = QWidget()
+        self.tabs_waveform.addTab(self.tab_sine, "Sine")
+        self.tab_pulse = QWidget()
+        self.tabs_waveform.addTab(self.tab_pulse, "Pulse")
 
         # ---- Main Tab window ----
         # ---- Device name ----
@@ -359,79 +522,110 @@ class BLEApp(QWidget):
         self.ble_worker = None
 
         # ---- Loop Setup ----
-        QLabel("Channel1 Start:", self).setGeometry(20, 350, 100, 25)
-        self.start_edit_1 = QLineEdit(self)
-        self.start_edit_1.setGeometry(130, 350, 100, 25)
-        
-        QLabel("Channel1 Stop:", self).setGeometry(20, 390, 100, 25)
-        self.stop_edit_1 = QLineEdit(self)
-        self.stop_edit_1.setGeometry(130, 390, 100, 25)
-        
-        QLabel("Channel1 Step:", self).setGeometry(20, 430, 100, 25)
-        self.step_edit_1 = QLineEdit(self)
-        self.step_edit_1.setGeometry(130, 430, 100, 25)
+            # ---- Waveform selection ----
+        QLabel("Waveform:", self).setGeometry(150, 110, 100, 25)
+        self.waveform_sel_box = QComboBox(self)
+        self.waveform_sel_box.setGeometry(220, 110, 120, 25)
+        self.waveform_sel_box.addItems(["Triangle", "Sine", "Pulse"])
+        self.waveform_sel_box.currentIndexChanged.connect(self.tabs_waveform.setCurrentIndex)
 
-        QLabel("Channel2 Start:", self).setGeometry(250, 350, 100, 25)
-        self.start_edit_2 = QLineEdit(self)
-        self.start_edit_2.setGeometry(360, 350, 100, 25)
+            # ---- Triangle tab ----
+        QLabel("Channel 1 Start:", self.tab_triangle).setGeometry(10, 20, 100, 25)
+        self.start_edit_1 = QLineEdit("0", self.tabs_waveform)
+        self.start_edit_1.setGeometry(120, 20, 100, 25)
         
-        QLabel("Channel2 Stop:", self).setGeometry(250, 390, 100, 25)
-        self.stop_edit_2 = QLineEdit(self)
-        self.stop_edit_2.setGeometry(360, 390, 100, 25)
+        QLabel("Channel 1 Stop:", self.tab_triangle).setGeometry(10, 60, 100, 25)
+        self.stop_edit_1 = QLineEdit("0", self.tabs_waveform)
+        self.stop_edit_1.setGeometry(120, 60, 100, 25)
         
-        QLabel("Channel2 Step:", self).setGeometry(250, 430, 100, 25)
-        self.step_edit_2 = QLineEdit(self)
-        self.step_edit_2.setGeometry(360, 430, 100, 25)
-        
-        QLabel("Interval (ms):", self).setGeometry(20, 470, 100, 25)
-        self.interval_edit = QLineEdit(self)
-        self.interval_edit.setGeometry(130, 470, 100, 25)
+        QLabel("Channel 1 Step:", self.tab_triangle).setGeometry(10, 100, 100, 25)
+        self.step_edit_1 = QLineEdit("0", self.tabs_waveform)
+        self.step_edit_1.setGeometry(120, 100, 100, 25)
 
-        QLabel("Dual direction:", self).setGeometry(250, 470, 100, 25)
-        self.direction_enable = QCheckBox(self)
-        self.direction_enable.setGeometry(360, 470, 100, 25)
+        QLabel("Channel 2 Start:", self.tab_triangle).setGeometry(235, 20, 100, 25)
+        self.start_edit_2 = QLineEdit("0", self.tabs_waveform)
+        self.start_edit_2.setGeometry(350, 20, 100, 25)
+        
+        QLabel("Channel 2 Stop:", self.tab_triangle).setGeometry(235, 60, 100, 25)
+        self.stop_edit_2 = QLineEdit("0", self.tabs_waveform)
+        self.stop_edit_2.setGeometry(350, 60, 100, 25)
+        
+        QLabel("Channel 2 Step:", self.tab_triangle).setGeometry(235, 100, 100, 25)
+        self.step_edit_2 = QLineEdit("0", self.tabs_waveform)
+        self.step_edit_2.setGeometry(350, 100, 100, 25)
+        
+        QLabel("Interval (ms):", self.tabs_waveform).setGeometry(10, 140, 100, 25)
+        self.interval_edit = QLineEdit("20", self.tabs_waveform)
+        self.interval_edit.setGeometry(120, 140, 100, 25)
+
+        QLabel("Dual direction:", self.tab_triangle).setGeometry(240, 140, 100, 25)
+        self.direction_enable = QCheckBox(self.tab_triangle)
+        self.direction_enable.setGeometry(350, 140, 100, 25)
 
         self.start_loop_btn = QPushButton("Start Loop", self)
-        self.start_loop_btn.setGeometry(20, 550, 120, 25)
-        self.start_loop_btn.clicked.connect(self.start_loop)
-
-        self.start_loop_btn = QPushButton("Stop Loop", self)
         self.start_loop_btn.setGeometry(20, 590, 120, 25)
         self.start_loop_btn.clicked.connect(self.start_loop)
 
-        QLabel("CH1 constant:", self).setGeometry(20, 510, 100, 25)
-        self.ch1_enable = QCheckBox("Sweep CH1", self)
-        self.ch1_enable.setGeometry(20, 290, 100, 100)
-        self.ch1_value_edit = QLineEdit("0", self)               # Constant (default value is "0")
-        self.ch1_value_edit.setGeometry(130, 510, 100, 25)
+        self.start_loop_btn = QPushButton("Stop Loop", self)
+        self.start_loop_btn.setGeometry(20, 630, 120, 25)
+        self.start_loop_btn.clicked.connect(self.stop_loop)
 
-        QLabel("CH2 constant:", self).setGeometry(250, 510, 100, 25)
-        self.ch2_enable = QCheckBox("Sweep CH2", self)
-        self.ch2_enable.setGeometry(250, 290, 100, 100)
-        self.ch2_value_edit = QLineEdit("0", self)          # Constant (default value is "0")
-        self.ch2_value_edit.setGeometry(360, 510, 100, 25)
+        QLabel("Number of cycles: ", self).setGeometry(250, 590, 120, 25)
+        self.num_cycles_edit = QLineEdit("2", self)
+        self.num_cycles_edit.setGeometry(360, 590, 100, 25)
 
-        QLabel("Sine period:", self).setGeometry(250, 550, 100, 25)
-        self.sine_value_edit = QLineEdit("0", self)
-        self.sine_value_edit.setGeometry(360, 550, 100, 25)
+            # ---- Enable & constant
+        QLabel("CH1 constant:", self.tabs_waveform).setGeometry(10, 220, 100, 25)
+        self.ch1_enable = QCheckBox("Enable CH1", self.tabs_waveform)
+        self.ch1_enable.setGeometry(10, 0, 100, 25)
+        self.ch1_value_edit = QLineEdit("0", self.tabs_waveform)               # Constant (default value is "0")
+        self.ch1_value_edit.setGeometry(120, 220, 100, 25)
 
-        QLabel("Sine step:", self).setGeometry(250, 590, 100, 25)
-        self.sine_step_edit = QLineEdit("0", self)
-        self.sine_step_edit.setGeometry(360, 590, 100, 25)
+        QLabel("CH2 constant:", self.tabs_waveform).setGeometry(240, 220, 100, 25)
+        self.ch2_enable = QCheckBox("Enable CH2", self.tabs_waveform)
+        self.ch2_enable.setGeometry(230, 0, 100, 25)
+        self.ch2_value_edit = QLineEdit("0", self.tabs_waveform)          # Constant (default value is "0")
+        self.ch2_value_edit.setGeometry(350, 220, 100, 25)
+
+            # ---- Sine tab ----
+        QLabel("Sine Low Vpp:", self.tab_sine).setGeometry(10, 20, 100, 25)
+        QLabel("Sine High Vpp:", self.tab_sine).setGeometry(10, 60, 100, 25)
+        QLabel("Sine period:", self.tab_sine).setGeometry(10, 180, 100, 25)
+        QLabel("Sine Low Vpp:", self.tab_sine).setGeometry(235, 20, 100, 25)
+        QLabel("Sine High Vpp:", self.tab_sine).setGeometry(235, 60, 100, 25)
+        QLabel("Sine period:", self.tab_sine).setGeometry(235, 180, 100, 25)
+
+        QLabel("Period:", self.tab_triangle).setGeometry(10, 180, 100, 25)
+        self.ch1_period_edit = QLineEdit("500", self.tabs_waveform)
+        self.ch1_period_edit.setGeometry(120, 180, 100, 25)
+
+        QLabel("Period:", self.tab_triangle).setGeometry(235, 180, 100, 25)
+        self.ch2_period_edit = QLineEdit("500", self.tabs_waveform)
+        self.ch2_period_edit.setGeometry(350, 180, 100, 25)
+
+            # ---- Pulse tab ----
+        QLabel("Low Vpp:", self.tab_pulse).setGeometry(10, 20, 100, 25)
+        QLabel("High Vpp:", self.tab_pulse).setGeometry(10, 60, 100, 25)
+        QLabel("Duty cycle:", self.tab_pulse).setGeometry(10, 100, 100, 25)
+        QLabel("Pulse period:", self.tab_pulse).setGeometry(10, 180, 100, 25)
+        QLabel("Low Vpp:", self.tab_pulse).setGeometry(235, 20, 100, 25)
+        QLabel("High Vpp:", self.tab_pulse).setGeometry(235, 60, 100, 25)
+        QLabel("Duty cycle:", self.tab_pulse).setGeometry(235, 100, 100, 25)
+        QLabel("Pulse period:", self.tab_pulse).setGeometry(235, 180, 100, 25)
 
         self.ch1_enable.stateChanged.connect(self.on_ch1_enable_changed)
         self.ch2_enable.stateChanged.connect(self.on_ch2_enable_changed)
 
         # Command (CMD) setup
-        QLabel("Send command:", self).setGeometry(20, 700, 100, 30)
+        QLabel("Send command:", self).setGeometry(20, 720, 100, 30)
         self.cmd_edit = QLineEdit("01", self)          # Constant (default value is "0")
         # 01: voltage measure
         # 02: inject current
         # 00: reset
-        self.cmd_edit.setGeometry(130, 700, 100, 30)
+        self.cmd_edit.setGeometry(130, 720, 100, 30)
 
         self.send_cmd_btn = QPushButton("Send", self)
-        self.send_cmd_btn.setGeometry(250, 700, 100, 30)
+        self.send_cmd_btn.setGeometry(250, 720, 100, 30)
         self.send_cmd_btn.clicked.connect(self.send_cmd_data)
 
         # Initial state
@@ -457,7 +651,7 @@ class BLEApp(QWidget):
                 'font-weight': 'bold'
             }
         # ---- Channel 1 graph ----
-        self.plot_widget_1 = pg.PlotWidget(self.tab_main)
+        self.plot_widget_1 = pg.PlotWidget(self.tab_time)
         self.plot_widget_1.setGeometry(0, 0, 1380, 300)
         self.plot_widget_1.setLabel('left', 'Channel 1 (uA)', **label_style_main_tab)
         self.plot_widget_1.setLabel('bottom', 'Time', units='s', **label_style_main_tab)
@@ -466,7 +660,7 @@ class BLEApp(QWidget):
         self.plot_curve_1 = self.plot_widget_1.plot(pen='y')
 
         # ---- Channel 2 graph ----
-        self.plot_widget_2 = pg.PlotWidget(self.tab_main)
+        self.plot_widget_2 = pg.PlotWidget(self.tab_time)
         self.plot_widget_2.setGeometry(0, 320, 1380, 300)
         self.plot_widget_2.setLabel('left', 'Channel 2 (Drain) (mV)', **label_style_main_tab)
         self.plot_widget_2.setLabel('bottom', 'Time', units='s', **label_style_main_tab)
@@ -475,7 +669,7 @@ class BLEApp(QWidget):
         self.plot_curve_2 = self.plot_widget_2.plot(pen='y')
 
         # ---- Channel 3 graph ----
-        self.plot_widget_3 = pg.PlotWidget(self.tab_main)
+        self.plot_widget_3 = pg.PlotWidget(self.tab_time)
         self.plot_widget_3.setGeometry(0, 640, 1380, 300)
         self.plot_widget_3.setLabel('left', 'Channel 3 (Gate) (mV)', **label_style_main_tab)
         self.plot_widget_3.setLabel('bottom', 'Time', units='s', **label_style_main_tab)
@@ -522,14 +716,13 @@ class BLEApp(QWidget):
         self.csv_ch2 = []
         self.csv_ch3 = []
 
-        QLabel("CSV filename:", self).setGeometry(20, 640, 100, 30)
-
+        QLabel("CSV filename:", self).setGeometry(20, 680, 100, 30)
         self.csv_name_edit = QLineEdit(self)
-        self.csv_name_edit.setGeometry(130, 640, 200, 30)
+        self.csv_name_edit.setGeometry(130, 680, 200, 30)
         self.csv_name_edit.setPlaceholderText("enter filename here")
 
         self.save_csv_btn = QPushButton("Save CSV", self)
-        self.save_csv_btn.setGeometry(350, 640, 120, 30)
+        self.save_csv_btn.setGeometry(350, 680, 120, 30)
         self.save_csv_btn.clicked.connect(self.save_csv)
 
     def reset_graph(self):
@@ -591,22 +784,26 @@ class BLEApp(QWidget):
     # ---- Set channel value from textbox
     def get_ch1_config(self) -> ChannelConfig:
         return ChannelConfig(
+            loop=0,
             start=int(self.start_edit_1.text()),
             stop=int(self.stop_edit_1.text()),
             step=int(self.step_edit_1.text()),
             fixed_value=int(self.ch1_value_edit.text()),
             enabled=self.ch1_enable.isChecked(),
-            direction=self.direction_enable.isChecked()
+            direction=self.direction_enable.isChecked(),
+            period=int(self.ch1_period_edit.text()),
         )
     
     def get_ch2_config(self) -> ChannelConfig:
         return ChannelConfig(
+            loop=0,
             start=int(self.start_edit_2.text()),
             stop=int(self.stop_edit_2.text()),
             step=int(self.step_edit_2.text()),
             fixed_value=int(self.ch2_value_edit.text()),
             enabled=self.ch2_enable.isChecked(),
-            direction=self.direction_enable.isChecked()
+            direction=self.direction_enable.isChecked(),
+            period=int(self.ch2_period_edit.text()),
         )
 
     # ---- Check enable chanel ----
@@ -616,6 +813,7 @@ class BLEApp(QWidget):
         self.start_edit_1.setEnabled(enabled)
         self.stop_edit_1.setEnabled(enabled)
         self.step_edit_1.setEnabled(enabled)
+        self.ch1_period_edit.setEnabled(enabled)
 
     def on_ch2_enable_changed(self, state):
         enabled = state == Qt.Checked
@@ -623,6 +821,7 @@ class BLEApp(QWidget):
         self.start_edit_2.setEnabled(enabled)
         self.stop_edit_2.setEnabled(enabled)
         self.step_edit_2.setEnabled(enabled)
+        self.ch2_period_edit.setEnabled(enabled)
 
     def get_ch1_value(self, loop_val):
         if self.ch1_enable.isChecked():
@@ -803,27 +1002,53 @@ class BLEApp(QWidget):
 
     # ---------- Set data in a loop ----------
     def start_loop(self):
+        self.ble_worker.loop_running = True
 
         interval_s = int(self.interval_edit.text()) / 1000
+        self.ch1_cfg = self.get_ch1_config()
+        self.ch2_cfg = self.get_ch2_config()
 
-        sine_period_s = int(self.sine_value_edit.text()) / 1000
-        sine_step_s = int(self.sine_step_edit.text()) / 1000
+        num_cycles = int(self.num_cycles_edit.text())
 
-        ch1_cfg = self.get_ch1_config()
-        ch2_cfg = self.get_ch2_config()
+        # Cancel existing task if running
+        if hasattr(self, "loop_task") and self.loop_task:
+            self.loop_task.cancel()
 
-        # self.loop_worker = LoopWorker(self.ble_worker, start, stop, step, interval)
-        # # self.loop_worker.update_value.connect(self.show_loop_value)  # optional
-        # self.loop_worker.run()
-        asyncio.run_coroutine_threadsafe(
-        self.ble_worker.send_loop_data(ch1_cfg, ch2_cfg, interval_s),
-        # self.ble_worker.send_sine_data(ch1_cfg, ch2_cfg, interval_s, sine_period_s, sine_step_s),
-        self.ble_worker.loop
-    )
+        waveform_index = self.waveform_sel_box.currentIndex()
+
+        self.loop_task = asyncio.run_coroutine_threadsafe(
+            self.ble_worker.send_loop_data(self.ch1_cfg, self.ch2_cfg, waveform_index, interval_s, num_cycles),
+            self.ble_worker.loop
+        )
+
+        # current = self.waveform_sel_box.currentText()
+
+        # if current == "Sine":
+        #     # print("Waveform index: ", self.waveform_sel_box.currentIndex())
+        #     self.loop_task = asyncio.run_coroutine_threadsafe(
+        #         self.ble_worker.send_sine_data(self.ch1_cfg, self.ch2_cfg, interval_s),
+        #         self.ble_worker.loop
+        #     )
+
+        # if current == "Triangle":
+        #     # Create and store task
+        #     self.loop_task = asyncio.run_coroutine_threadsafe(
+        #         self.ble_worker.send_triangle_data(self.ch1_cfg, self.ch2_cfg, interval_s),
+        #         self.ble_worker.loop
+        #     )
+
+        # if current == "Pulse":
+        #     self.loop_task = asyncio.run_coroutine_threadsafe(
+        #         self.ble_worker.send_pulse_data(self.ch1_cfg, self.ch2_cfg, interval_s),
+        #         self.ble_worker.loop
+        #     )
 
     def stop_loop(self):
-        self.ble_worker.loop_running = False
+        self.ble_worker.loop_running = False        
 
+        if hasattr(self, "loop_task") and self.loop_task:
+            self.loop_task.cancel()
+            self.loop_task = None
 
 # ================= MAIN =================
 if __name__ == "__main__":
