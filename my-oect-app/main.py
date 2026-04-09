@@ -633,7 +633,7 @@ class BLEApp(QWidget):
         self.on_ch2_enable_changed(self.ch2_enable.checkState())
 
         # ---- pyqtgraph ----
-        self.max_points = 20000
+        self.max_points = 10000
 
         self.time_buffer = deque(maxlen=self.max_points)
         self.time_ble_buffer = deque(maxlen=self.max_points)
