@@ -153,8 +153,11 @@ class BLEWorker(QThread):
                     # Decide values
                     ch1_loop_send_value = ch1.loop if ch1.loop >= 0 else ch1.loop + 65536
                     ch2_loop_send_value = ch2.loop if ch2.loop >= 0 else ch2.loop + 65536
-                    v1 = ch1_loop_send_value if ch1.enabled else ch1.fixed_value
-                    v2 = ch2_loop_send_value if ch2.enabled else ch2.fixed_value
+                    ch1_send_fixed_value = ch1.fixed_value if ch1.fixed_value >= 0 else ch1.fixed_value + 65536
+                    ch2_send_fixed_value = ch2.fixed_value if ch2.fixed_value >= 0 else ch2.fixed_value + 65536
+                    
+                    v1 = ch1_loop_send_value if ch1.enabled else ch1_send_fixed_value
+                    v2 = ch2_loop_send_value if ch2.enabled else ch2_send_fixed_value
 
                     # Merge packet
                     packet = (
