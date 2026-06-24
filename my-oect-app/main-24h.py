@@ -39,38 +39,6 @@ SERVICE_UUID = "1234"
 CHAR_UUID    = "9876"
 CMD_CHAR_UUID = "9000"
 
-# ================ SET DATA SEND IN A LOOP ================
-# class LoopWorker(QThread):
-#     update_value = pyqtSignal(int)  # optional, for GUI display
-
-#     def __init__(self, ble_worker, start, stop, step, interval_ms):
-#         super().__init__()
-#         self.ble_worker = ble_worker
-#         self.start = start
-#         self.stop = stop
-#         self.step = step
-#         self.interval = interval_ms / 1000
-#         self._running = True
-
-#     def run(self):
-#         val = self.start
-#         while self._running and val <= self.stop:
-#             # emit signal if you want to display
-#             self.update_value.emit(val)
-            
-#             # send via BLE
-#             asyncio.run_coroutine_threadsafe(
-#                 self.ble_worker.write_data(bytes([val])),
-#                 self.ble_worker.loop
-#             )
-
-#             val += self.step
-#             time.sleep(self.interval)  # simple delay
-
-#     def stop_run(self):
-#         self._running = False
-
-
 # ================= BLE THREAD =================
 class BLEWorker(QThread):
     device_found = pyqtSignal(str)
@@ -155,7 +123,7 @@ class BLEWorker(QThread):
                     ch2_loop_send_value = ch2.loop if ch2.loop >= 0 else ch2.loop + 65536
                     ch1_send_fixed_value = ch1.fixed_value if ch1.fixed_value >= 0 else ch1.fixed_value + 65536
                     ch2_send_fixed_value = ch2.fixed_value if ch2.fixed_value >= 0 else ch2.fixed_value + 65536
-                    
+
                     v1 = ch1_loop_send_value if ch1.enabled else ch1_send_fixed_value
                     v2 = ch2_loop_send_value if ch2.enabled else ch2_send_fixed_value
 
@@ -172,7 +140,7 @@ class BLEWorker(QThread):
                         '''
                         Triangle waveform
                         '''
-                        if waveform_index == 0:    
+                        if waveform_index == 0:
                             if ch1.start <= ch1.stop:
                                 if backward_sweep == 0:
                                     ch1.loop += ch1.step
@@ -205,7 +173,7 @@ class BLEWorker(QThread):
                             if ch1_period_counter <= ch1_period_steps:
                                 ch1.loop = int((ch1.start + ch1.stop)/2 + (ch1.start - ch1.stop) * np.sin(ch1_period_counter*2*np.pi/ch1_period_steps)/2)
                                 ch1_period_counter += 1
-                            else: 
+                            else:
                                 break
 
                         '''
@@ -218,14 +186,14 @@ class BLEWorker(QThread):
                                 else:
                                     ch1.loop = ch1.start
                                 ch1_period_counter += 1
-                            else: 
+                            else:
                                 break
 
                     if ch2.enabled:
                         '''
                         Triangle waveform
                         '''
-                        if waveform_index == 0:  
+                        if waveform_index == 0:
                             if ch2.start <= ch2.stop:
                                 if backward_sweep == 0:
                                     ch2.loop += ch2.step
@@ -258,7 +226,7 @@ class BLEWorker(QThread):
                             if ch2_period_counter <= ch2_period_steps:
                                 ch2.loop = int((ch2.start + ch2.stop)/2 + (ch2.start - ch2.stop) * np.sin(ch2_period_counter*2*np.pi/ch2_period_steps)/2)
                                 ch2_period_counter += 1
-                            else: 
+                            else:
                                 break
                         '''
                         Pulse waveform
@@ -270,7 +238,7 @@ class BLEWorker(QThread):
                                 else:
                                     ch2.loop = ch2.start
                                 ch2_period_counter += 1
-                            else: 
+                            else:
                                 break
 
         except asyncio.CancelledError:
@@ -278,184 +246,6 @@ class BLEWorker(QThread):
             raise
 
         # ---- End ----
-
-    # async def send_triangle_data(self, ch1: ChannelConfig, ch2: ChannelConfig, interval_s: float):
-    #     try:
-    #         ch1.loop = ch1.start
-    #         ch2.loop = ch2.start
-
-    #         backward_sweep = 0
-
-    #         # t0_loop = time.perf_counter()
-
-    #         while True:
-    #             # Decide values
-    #             ch1_loop_send_value = ch1.loop if ch1.loop >= 0 else ch1.loop + 65536
-    #             ch2_loop_send_value = ch2.loop if ch2.loop >= 0 else ch2.loop + 65536
-    #             v1 = ch1_loop_send_value if ch1.enabled else ch1.fixed_value
-    #             v2 = ch2_loop_send_value if ch2.enabled else ch2.fixed_value
-
-    #             # Merge packet
-    #             packet = (
-    #                 v1.to_bytes(2, 'big', signed=False) +
-    #                 v2.to_bytes(2, 'big', signed=False)
-    #             )
-
-    #             await self.write_data(packet)
-    #             await asyncio.sleep(interval_s)
-
-    #             # Advance enabled channels only
-    #             if ch1.enabled:
-    #                 if ch1.start <= ch1.stop:
-    #                     if backward_sweep == 0:
-    #                         ch1.loop += ch1.step
-    #                         if ch1.loop > ch1.stop:     # Should not let equality (=)
-    #                             if ch1.direction:
-    #                                 backward_sweep = 1
-    #                             else:
-    #                                 break
-    #                     if backward_sweep == 1:
-    #                         ch1.loop -= ch1.step
-    #                         if ch1.loop < ch1.start:
-    #                             break
-
-    #                 elif ch1.start >= ch1.stop:
-    #                     if backward_sweep == 0:
-    #                         ch1.loop -= ch1.step
-    #                         if ch1.loop < ch1.stop:
-    #                             if ch1.direction:
-    #                                 backward_sweep = 1
-    #                             else:
-    #                                 break
-    #                     if backward_sweep == 1:
-    #                         ch1.loop += ch1.step
-    #                         if ch1.loop > ch1.start:
-    #                             break
-
-    #             if ch2.enabled:
-    #                 if ch2.start <= ch2.stop:
-    #                     if backward_sweep == 0:
-    #                         ch2.loop += ch2.step
-    #                         if ch2.loop > ch2.stop:
-    #                             if ch2.direction:
-    #                                 backward_sweep = 1
-    #                             else:
-    #                                 break
-    #                     if backward_sweep == 1:
-    #                         ch2.loop -= ch2.step
-    #                         if ch2.loop < ch2.start:
-    #                             break
-
-    #                 elif ch2.start >= ch2.stop:
-    #                     if backward_sweep == 0:
-    #                         ch2.loop -= ch2.step
-    #                         if ch2.loop < ch2.stop:     # Should not let equality (=)
-    #                             if ch2.direction:
-    #                                 backward_sweep = 1
-    #                             else:
-    #                                 break
-    #                     if backward_sweep == 1:
-    #                         ch2.loop += ch2.step
-    #                         if ch2.loop > ch2.start:
-    #                             break
-    #     except asyncio.CancelledError:
-    #         print("Loop task cancelled")
-    #         raise
-
-    # async def send_sine_data(self, ch1: ChannelConfig, ch2: ChannelConfig, interval_s: float):
-    #     try: 
-    #         ch1_loop = ch1.sine_low
-    #         ch2_loop = ch2.sine_low
-
-    #         ch1_period_counter = 0
-    #         ch1_period_steps = int((ch1.sine_period/1000) / interval_s)
-    #         ch2_period_counter = 0
-    #         ch2_period_steps = int((ch2.sine_period/1000) / interval_s)
-
-    #         while True:
-    #             # Decide values
-    #             ch1_loop_send_value = ch1_loop if ch1_loop >= 0 else ch1_loop + 65536
-    #             ch2_loop_send_value = ch2_loop if ch2_loop >= 0 else ch2_loop + 65536
-    #             v1 = ch1_loop_send_value if ch1.enabled else ch1.fixed_value
-    #             v2 = ch2_loop_send_value if ch2.enabled else ch2.fixed_value
-
-    #             # Merge packet
-    #             packet = (
-    #                 v1.to_bytes(2, 'big', signed=False) +
-    #                 v2.to_bytes(2, 'big', signed=False)
-    #             )
-
-    #             await self.write_data(packet)
-    #             await asyncio.sleep(interval_s)
-
-    #             # Advance enabled channels only
-    #             if ch1.enabled:
-    #                 if ch1_period_counter <= ch1_period_steps:
-    #                     ch1_loop = int((ch1.sine_low + ch1.sine_high)/2 + (ch1.sine_high - ch1.sine_low) * np.sin(ch1_period_counter*2*np.pi/ch1_period_steps)/2)
-    #                     ch1_period_counter += 1
-    #                     # print(ch1_loop, "\t", ch1_period_counter, "\t", ch1_loop_send_value, "\t Low: ", ch1.sine_low, "\t High: ", ch1.sine_high, "\t Period: ", ch1.sine_period)
-    #                 else: 
-    #                     break
-
-    #             if ch2.enabled:
-    #                 if ch2_period_counter <= ch2_period_steps:
-    #                     ch2_loop = int((ch2.sine_low + ch2.sine_high)/2 + (ch2.sine_high - ch2.sine_low) * np.sin(ch2_period_counter*2*np.pi/ch2_period_steps)/2)
-    #                     ch2_period_counter += 1
-    #                 else: 
-    #                     break
-    #     except asyncio.CancelledError:
-    #         print("Loop task cancelled")
-    #         raise
-
-    # async def send_pulse_data(self, ch1: ChannelConfig, ch2: ChannelConfig, interval_s: float):
-    #     try: 
-    #         ch1_loop = ch1.pulse_low
-    #         ch2_loop = ch2.pulse_low
-
-    #         ch1_period_counter = 0
-    #         ch1_period_steps = int((ch1.pulse_period/1000) / interval_s)
-    #         ch2_period_counter = 0
-    #         ch2_period_steps = int((ch2.pulse_period/1000) / interval_s)
-
-    #         while True:
-    #             # Decide values
-    #             ch1_loop_send_value = ch1_loop if ch1_loop >= 0 else ch1_loop + 65536
-    #             ch2_loop_send_value = ch2_loop if ch2_loop >= 0 else ch2_loop + 65536
-    #             v1 = ch1_loop_send_value if ch1.enabled else ch1.fixed_value
-    #             v2 = ch2_loop_send_value if ch2.enabled else ch2.fixed_value
-
-    #             # Merge packet
-    #             packet = (
-    #                 v1.to_bytes(2, 'big', signed=False) +
-    #                 v2.to_bytes(2, 'big', signed=False)
-    #             )
-
-    #             await self.write_data(packet)
-    #             await asyncio.sleep(interval_s)
-
-    #             # Advance enabled channels only
-    #             if ch1.enabled:
-    #                 if ch1_period_counter <= ch1_period_steps:
-    #                     if ch1_period_counter < ch1_period_steps/2:
-    #                         ch1_loop = int(ch1.pulse_high)
-    #                     else:
-    #                         ch1_loop = int(ch1.pulse_low)
-    #                     ch1_period_counter += 1
-    #                 else: 
-    #                     break
-
-    #             if ch2.enabled:
-    #                 if ch2_period_counter <= ch2_period_steps:
-    #                     if ch2_period_counter < ch2_period_steps/2:
-    #                         ch2_loop = int(ch2.pulse_high)
-    #                     else:
-    #                         ch2_loop = int(ch2.pulse_low)
-    #                     ch2_period_counter += 1
-    #                 else: 
-    #                     break
-    #     except asyncio.CancelledError:
-    #         print("Loop task cancelled")
-    #         raise
 
 # ================= MAIN UI =================
 class BLEApp(QWidget):
@@ -536,11 +326,11 @@ class BLEApp(QWidget):
         QLabel("Channel 1 Start:", self.tab_triangle).setGeometry(10, 20, 100, 25)
         self.start_edit_1 = QLineEdit("0", self.tabs_waveform)
         self.start_edit_1.setGeometry(120, 20, 100, 25)
-        
+
         QLabel("Channel 1 Stop:", self.tab_triangle).setGeometry(10, 60, 100, 25)
         self.stop_edit_1 = QLineEdit("0", self.tabs_waveform)
         self.stop_edit_1.setGeometry(120, 60, 100, 25)
-        
+
         QLabel("Channel 1 Step:", self.tab_triangle).setGeometry(10, 100, 100, 25)
         self.step_edit_1 = QLineEdit("0", self.tabs_waveform)
         self.step_edit_1.setGeometry(120, 100, 100, 25)
@@ -548,15 +338,15 @@ class BLEApp(QWidget):
         QLabel("Channel 2 Start:", self.tab_triangle).setGeometry(235, 20, 100, 25)
         self.start_edit_2 = QLineEdit("0", self.tabs_waveform)
         self.start_edit_2.setGeometry(350, 20, 100, 25)
-        
+
         QLabel("Channel 2 Stop:", self.tab_triangle).setGeometry(235, 60, 100, 25)
         self.stop_edit_2 = QLineEdit("0", self.tabs_waveform)
         self.stop_edit_2.setGeometry(350, 60, 100, 25)
-        
+
         QLabel("Channel 2 Step:", self.tab_triangle).setGeometry(235, 100, 100, 25)
         self.step_edit_2 = QLineEdit("0", self.tabs_waveform)
         self.step_edit_2.setGeometry(350, 100, 100, 25)
-        
+
         QLabel("Interval (ms):", self.tabs_waveform).setGeometry(10, 140, 100, 25)
         self.interval_edit = QLineEdit("20", self.tabs_waveform)
         self.interval_edit.setGeometry(120, 140, 100, 25)
@@ -728,6 +518,43 @@ class BLEApp(QWidget):
         self.save_csv_btn.setGeometry(350, 680, 120, 30)
         self.save_csv_btn.clicked.connect(self.save_csv)
 
+        # ================= AUTO-SAVE MODE =================
+        # Layout placed below the existing CSV controls (y starts at ~760)
+        QLabel("Auto-Save Interval (min):", self).setGeometry(20, 760, 160, 25)
+        self.autosave_interval_edit = QLineEdit("60", self)          # e.g. ~1h = 60 min
+        self.autosave_interval_edit.setGeometry(200, 760, 80, 25)
+
+        QLabel("Duration Limit (min):", self).setGeometry(20, 790, 180, 25)
+        self.autosave_duration_edit = QLineEdit("480", self)         # up to 24h = 1440 min
+        self.autosave_duration_edit.setGeometry(200, 790, 80, 25)
+
+        self.autosave_start_btn = QPushButton("Start Auto-Save", self)
+        self.autosave_start_btn.setGeometry(300, 760, 150, 25)
+        self.autosave_start_btn.clicked.connect(self.start_autosave)
+
+        self.autosave_stop_btn = QPushButton("EMERGENCY STOP", self)
+        self.autosave_stop_btn.setGeometry(300, 790, 150, 25)
+        self.autosave_stop_btn.setStyleSheet("background-color: red; color: white; font-weight: bold;")
+        self.autosave_stop_btn.clicked.connect(self.stop_autosave)
+        self.autosave_stop_btn.setEnabled(False)
+
+        self.autosave_status_label = QLabel("Auto-Save: OFF", self)
+        self.autosave_status_label.setGeometry(20, 820, 430, 25)
+        
+        self.autosave_log_box = QTextEdit("", self)
+        self.autosave_log_box.setGeometry(20, 850, 430, 100)
+
+        # Timer that fires periodically to write a save file
+        self.autosave_timer = QTimer(self)
+        self.autosave_timer.timeout.connect(self.perform_autosave)
+
+        # Timer that fires once to enforce the overall duration limit
+        self.autosave_limit_timer = QTimer(self)
+        self.autosave_limit_timer.setSingleShot(True)
+        self.autosave_limit_timer.timeout.connect(self.on_duration_limit_reached)
+
+        self.autosave_count = 0
+
     def reset_graph(self):
         # reset time reference
         # self.t0 = time.perf_counter()
@@ -762,15 +589,12 @@ class BLEApp(QWidget):
             counter += 1
 
         return filename
-    
-    def save_csv(self):
+
+    def _write_csv(self, base_name):
+        """Core CSV-writing logic, shared by manual Save and Auto-Save."""
         if not self.csv_time:
             self.rx_box.append("No data to save.")
-            return
-
-        base_name = self.csv_name_edit.text().strip()
-        if not base_name:
-            base_name = "data"
+            return None
 
         filename = self.get_unique_filename(base_name)
         path = os.path.abspath(filename)
@@ -782,7 +606,16 @@ class BLEApp(QWidget):
             for t, c1, c2, c3 in zip(self.csv_time, self.csv_ch1, self.csv_ch2, self.csv_ch3):
                 writer.writerow([t, c1, c2, c3])
 
-        self.rx_box.append(f"Data saved to {path}")
+        return path
+
+    def save_csv(self):
+        base_name = self.csv_name_edit.text().strip()
+        if not base_name:
+            base_name = "data"
+
+        path = self._write_csv(base_name)
+        if path:
+            self.rx_box.append(f"Data saved to {path}")
 
     # ---- Set channel value from textbox
     def get_ch1_config(self) -> ChannelConfig:
@@ -796,7 +629,7 @@ class BLEApp(QWidget):
             direction=self.direction_enable.isChecked(),
             period=int(self.ch1_period_edit.text()),
         )
-    
+
     def get_ch2_config(self) -> ChannelConfig:
         return ChannelConfig(
             loop=0,
@@ -836,6 +669,88 @@ class BLEApp(QWidget):
             return loop_val
         return int(self.ch2_value_edit.text())
 
+    # ================= AUTO-SAVE MODE METHODS =================
+    def start_autosave(self):
+        try:
+            interval_min = float(self.autosave_interval_edit.text())
+            duration_min = float(self.autosave_duration_edit.text())
+            self.autosave_total = max(1, int(duration_min // interval_min))
+        except ValueError:
+            self.rx_box.append("Auto-Save: invalid interval or duration value.")
+            return
+
+        if interval_min <= 0:
+            self.rx_box.append("Auto-Save: interval must be greater than 0.")
+            return
+
+        if duration_min <= 0 or duration_min > 1440:
+            self.rx_box.append("Auto-Save: duration limit must be between 0 and 1440 min (24h).")
+            return
+
+        if interval_min > duration_min:
+            self.rx_box.append("Auto-Save: interval cannot be longer than the duration limit.")
+            return
+
+        self.autosave_count = 0
+        self.reset_graph()
+
+        # periodic save trigger
+        self.autosave_timer.start(int(interval_min * 60 * 1000))
+        # one-shot overall time limit -> auto stop
+        self.autosave_limit_timer.start(int(duration_min * 60 * 1000))
+
+        self.autosave_start_btn.setEnabled(False)
+        self.autosave_stop_btn.setEnabled(True)
+        self.autosave_interval_edit.setEnabled(False)
+        self.autosave_duration_edit.setEnabled(False)
+        self.autosave_status_label.setText(
+            f"Auto-Save: ON (every {interval_min:g} min, stops after {duration_min:g} min)"
+        )
+        self.rx_box.append("Auto-Save mode started.")
+
+    def stop_autosave(self):
+        was_running = self.autosave_timer.isActive() or self.autosave_limit_timer.isActive()
+
+        self.autosave_timer.stop()
+        self.autosave_limit_timer.stop()
+
+        self.autosave_start_btn.setEnabled(True)
+        self.autosave_stop_btn.setEnabled(False)
+        self.autosave_interval_edit.setEnabled(True)
+        self.autosave_duration_edit.setEnabled(True)
+        self.autosave_status_label.setText("Auto-Save: OFF")
+
+        if was_running:
+            self.rx_box.append("Auto-Save mode stopped.")
+
+    def perform_autosave(self):
+        self.autosave_count += 1
+        base_name = self.csv_name_edit.text().strip() or "autosave"
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        base_name = f"{base_name}_auto{self.autosave_count}_{timestamp}"
+
+        path = self._write_csv(base_name)
+        if path:
+            remaining = max(0, self.autosave_total - self.autosave_count)
+            self.autosave_log_box.append(f"[Auto-Save #{self.autosave_count}] Data saved to {path} "
+                f"({self.autosave_count} files saved, {remaining} files to go) \n")
+            
+        self.reset_graph()
+        
+    def on_duration_limit_reached(self):
+        # Save whatever has accumulated since the last save, then stop and disconnect
+        self.autosave_count += 1
+        base_name = self.csv_name_edit.text().strip() or "autosave"
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        base_name = f"{base_name}_final_{timestamp}"
+ 
+        path = self._write_csv(base_name)
+        if path:
+            self.rx_box.append(f"[Auto-Save FINAL] Data saved to {path}")
+ 
+        self.autosave_log_box.append("Auto-Save: duration limit reached.")
+        self.stop_autosave()
+        self.disconnect_device()
 
     # ---------- Scan ----------
     def start_scan(self):
@@ -932,8 +847,8 @@ class BLEApp(QWidget):
     # ---------- Receive ----------
     def on_rx_data(self, data: bytes):
         hex_str = " ".join(f"{b:02X}" for b in data)
-        self.rx_box.append(hex_str)
-        
+        # self.rx_box.append(hex_str)
+
         # ---- pyqtgraph Handler ----
         # ---- decode ----
         channel_1 = np.int32(int.from_bytes(data[0:2], byteorder='big', signed=True))
@@ -957,7 +872,7 @@ class BLEApp(QWidget):
         if channel_3 < 1150:
             channel_3_coef_a2 = 2.0049
             channel_3_coef_b2 = -1326
-        else: 
+        else:
             channel_3_coef_a2 = 1.9317
             channel_3_coef_b2 = -1230.9
         channel_3 = channel_3 * channel_3_coef_a2 + channel_3_coef_b2
@@ -997,7 +912,7 @@ class BLEApp(QWidget):
         # self.rx_box.append(f"{t:.3f}s : {channel_3}")
 
         # ---- save to .csv array ----
-        # self.csv_time.append(t)             
+        # self.csv_time.append(t)
         self.csv_time.append(self.t_ble)                 # Change time ble
         self.csv_ch1.append(channel_1)
         self.csv_ch2.append(channel_2)
@@ -1024,30 +939,8 @@ class BLEApp(QWidget):
             self.ble_worker.loop
         )
 
-        # current = self.waveform_sel_box.currentText()
-
-        # if current == "Sine":
-        #     # print("Waveform index: ", self.waveform_sel_box.currentIndex())
-        #     self.loop_task = asyncio.run_coroutine_threadsafe(
-        #         self.ble_worker.send_sine_data(self.ch1_cfg, self.ch2_cfg, interval_s),
-        #         self.ble_worker.loop
-        #     )
-
-        # if current == "Triangle":
-        #     # Create and store task
-        #     self.loop_task = asyncio.run_coroutine_threadsafe(
-        #         self.ble_worker.send_triangle_data(self.ch1_cfg, self.ch2_cfg, interval_s),
-        #         self.ble_worker.loop
-        #     )
-
-        # if current == "Pulse":
-        #     self.loop_task = asyncio.run_coroutine_threadsafe(
-        #         self.ble_worker.send_pulse_data(self.ch1_cfg, self.ch2_cfg, interval_s),
-        #         self.ble_worker.loop
-        #     )
-
     def stop_loop(self):
-        self.ble_worker.loop_running = False        
+        self.ble_worker.loop_running = False
 
         if hasattr(self, "loop_task") and self.loop_task:
             self.loop_task.cancel()
