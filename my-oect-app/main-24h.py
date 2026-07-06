@@ -525,7 +525,7 @@ class BLEApp(QWidget):
         self.autosave_interval_edit.setGeometry(200, 760, 80, 25)
 
         QLabel("Duration Limit (min):", self).setGeometry(20, 790, 180, 25)
-        self.autosave_duration_edit = QLineEdit("480", self)         # up to 24h = 1440 min
+        self.autosave_duration_edit = QLineEdit("480", self)         # up to 5000 min
         self.autosave_duration_edit.setGeometry(200, 790, 80, 25)
 
         self.autosave_start_btn = QPushButton("Start Auto-Save", self)
@@ -683,8 +683,8 @@ class BLEApp(QWidget):
             self.rx_box.append("Auto-Save: interval must be greater than 0.")
             return
 
-        if duration_min <= 0 or duration_min > 1440:
-            self.rx_box.append("Auto-Save: duration limit must be between 0 and 1440 min (24h).")
+        if duration_min <= 0 or duration_min > 5000:
+            self.rx_box.append("Auto-Save: duration limit must be between 0 and 5000 min.")
             return
 
         if interval_min > duration_min:
